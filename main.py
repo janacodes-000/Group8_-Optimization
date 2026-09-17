@@ -15,7 +15,7 @@ from pathlib import Path
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, Results
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, Results
 from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule
 from src.scenarios import scale_prices, scale_pv, set_tariffs
 
@@ -27,7 +27,10 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
     print(data.summary(), "\n")
     plot_inputs(data, save_to=out / "inputs.png")
 
-    model = FlexibleConsumerModel(data).build()
+    if question == "Q2_linear":
+        model = LinearDisutilityModel(data).build()
+    else:
+        model = FlexibleConsumerModel(data).build()
     try:
         results = model.solve()
     except NotImplementedError as e:

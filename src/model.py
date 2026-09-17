@@ -81,14 +81,7 @@ class FlexibleConsumerModel:
         self.var: dict[str, gp.tupledict | gp.Var] = {}   # decision variables by name
         self.con: dict[str, gp.tupledict | gp.Constr] = {}  # constraints by name (duals read from here)
 
-    # ------------------------------------------------------------------ 2. build
-    def build(self) -> "FlexibleConsumerModel":
-        """Declare decision variables, objective and constraints.
-
-        TODO (Question 1): complete this method with the variables, objective and constraints
-        of the problem you formulated in Question 1. Keep the naming pattern below so
-        that ``solve()`` can return the primal and dual values automatically.
-        """
+    def _build_physical_model(self):
         d, m, T = self.data, self.m, self.T
 
         # --- Decision variables --------------------------------------------------------
@@ -129,21 +122,7 @@ class FlexibleConsumerModel:
             T, lb=0, vtype=GRB.CONTINUOUS, name="pv"
         )
 
-        # --- Objective ---------------------------------------------------------------
-        # Express the objective function and its direction (GRB.MINIMIZE or GRB.MAXIMIZE):
-        # m.setObjective(gp.quicksum(<expression in t> for t in T), <direction>)
-        # The input-data attributes (with units) are documented in src/data_loader.py (InputData).
-        m.setObjective(
-            gp.quicksum(
-                d.pv_marginal_cost * self.var["pv"][t]
-                + (d.energy_price[t] + d.import_tariff) * self.var["import"][t]
-                - (d.energy_price[t] - d.export_tariff) * self.var["export"][t]
-                - d.consumption_utility * self.var["load"][t]
-                for t in T
-            ),
-            GRB.MINIMIZE,
-        )
-
+        
         # --- Constraints -------------------------------------------------------------
         # Add the constraints of your formulation.
         # Pattern for hourly constraints (one per hour, duals returned as a 24-vector; names are
@@ -188,6 +167,35 @@ class FlexibleConsumerModel:
                 for t in T
             ),
             name="pv_max",
+        )
+
+        m.update()
+        return self
+
+    # ------------------------------------------------------------------ 2. build
+    def build(self) -> "FlexibleConsumerModel":
+        self._build_physical_model()
+        """Declare decision variables, objective and constraints.
+
+        (Question 1): complete this method with the variables, objective and constraints
+        of the problem you formulated in Question 1. Keep the naming pattern below so
+        that ``solve()`` can return the primal and dual values automatically.
+        """
+        d, m, T = self.data, self.m, self.T
+
+        # --- Q1 Objective ---------------------------------------------------------------
+        # Express the objective function and its direction (GRB.MINIMIZE or GRB.MAXIMIZE):
+        # m.setObjective(gp.quicksum(<expression in t> for t in T), <direction>)
+        # The input-data attributes (with units) are documented in src/data_loader.py (InputData).
+        m.setObjective(
+            gp.quicksum(
+                d.pv_marginal_cost * self.var["pv"][t]
+                + (d.energy_price[t] + d.import_tariff) * self.var["import"][t]
+                - (d.energy_price[t] - d.export_tariff) * self.var["export"][t]
+                - d.consumption_utility * self.var["load"][t]
+                for t in T
+            ),
+            GRB.MINIMIZE,
         )
 
         m.update()
@@ -245,6 +253,56 @@ class FlexibleConsumerModel:
         )
 
 
+class LinearDisutilityModel(FlexibleConsumerModel):
+    """Flexible consumer with linear absolute-deviation disutility (Question 2b)."""
+
+    def build(self) -> "LinearDisutilityModel":
+        super()._build_physical_model()
+
+        d, m, T = self.data, self.m, self.T
+
+        # --- Decision variables --------------------------------------------------------
+        self.var["deviation"] = m.addVars(
+            T,
+            lb=0,
+            vtype=GRB.CONTINUOUS,
+            name="deviation",
+        )
+        # --- Objective ---------------------------------------------------------------
+        m.setObjective(
+            gp.quicksum(
+                d.linear_disutility * self.var["deviation"][t]
+                + d.pv_marginal_cost * self.var["pv"][t]
+                + (d.energy_price[t] + d.import_tariff) * self.var["import"][t]
+                - (d.energy_price[t] - d.export_tariff) * self.var["export"][t]
+                for t in T
+            ),
+            GRB.MINIMIZE,
+         )
+
+        # --- Deviation constraints ---------------------------------------------------
+
+        self.con["deviation_pos"] = m.addConstrs(
+            (
+                self.var["deviation"][t]
+                >= self.var["load"][t] - d.reference_load[t]
+                for t in T
+            ),
+            name="deviation_pos",
+        )
+
+        self.con["deviation_neg"] = m.addConstrs(
+            (
+                self.var["deviation"][t]
+                >= d.reference_load[t] - self.var["load"][t]
+                for t in T
+            ),
+            name="deviation_neg",
+        )
+
+        m.update()
+        return self
+        
 _STATUS = {
     GRB.OPTIMAL: "OPTIMAL", GRB.INFEASIBLE: "INFEASIBLE", GRB.UNBOUNDED: "UNBOUNDED",
     GRB.INF_OR_UNBD: "INF_OR_UNBD", GRB.TIME_LIMIT: "TIME_LIMIT", GRB.SUBOPTIMAL: "SUBOPTIMAL",

@@ -92,7 +92,7 @@ class FlexibleConsumerModel:
         d, m, T = self.data, self.m, self.T
 
         # --- Decision variables --------------------------------------------------------
-        # TODO: identify and declare the decision variables of your formulation.
+        # Identify and declare the decision variables of your formulation.
         # Store every variable family in self.var["<name>"]: solve() then returns its hourly
         # values automatically as a column of results.hourly.
         # Pattern for hourly variables (one per hour):
@@ -108,20 +108,87 @@ class FlexibleConsumerModel:
         #   a bound you want a dual for must be an explicit constraint, not lb=/ub= (see the README).
         # * naming the families "import", "export", "load", "pv" makes the standard plots of
         #   src/plotting.py work out of the box.
+        
+        # electricity import (kWh) from the grid, per hour
+        self.var["import"] = m.addVars(
+            T, lb=0, vtype=GRB.CONTINUOUS, name="import"
+        )
+
+        # electricity export (kWh) to the grid, per hour
+        self.var["export"] = m.addVars(
+            T, lb=0, vtype=GRB.CONTINUOUS, name="export"
+        )
+
+        # actual consumer load (kWh) per hour
+        self.var["load"] = m.addVars(
+            T, lb=-GRB.INFINITY, vtype=GRB.CONTINUOUS, name="load"
+        )
+
+        # actual PV production (kWh) per hour
+        self.var["pv"] = m.addVars(
+            T, lb=0, vtype=GRB.CONTINUOUS, name="pv"
+        )
 
         # --- Objective ---------------------------------------------------------------
-        # TODO: express the objective function and its direction (GRB.MINIMIZE or GRB.MAXIMIZE):
-        #   m.setObjective(gp.quicksum(<expression in t> for t in T), <direction>)
+        # Express the objective function and its direction (GRB.MINIMIZE or GRB.MAXIMIZE):
+        # m.setObjective(gp.quicksum(<expression in t> for t in T), <direction>)
         # The input-data attributes (with units) are documented in src/data_loader.py (InputData).
+        m.setObjective(
+            gp.quicksum(
+                d.pv_marginal_cost * self.var["pv"][t]
+                + (d.energy_price[t] + d.import_tariff) * self.var["import"][t]
+                - (d.energy_price[t] - d.export_tariff) * self.var["export"][t]
+                - d.consumption_utility * self.var["load"][t]
+                for t in T
+            ),
+            GRB.MINIMIZE,
+        )
 
         # --- Constraints -------------------------------------------------------------
-        # TODO: add the constraints of your formulation.
+        # Add the constraints of your formulation.
         # Pattern for hourly constraints (one per hour, duals returned as a 24-vector; names are
         # indexed automatically, like for the variables):
         #   self.con["<name>"] = m.addConstrs(
         #       (<lhs expression> - <rhs expression> <= 0 for t in T), name="<name>")
         # Pattern for a single constraint (dual returned as a scalar):
         #   self.con["<name>"] = m.addConstr(<lhs expression> - <rhs expression> <= 0, name="<name>")
+
+        # Balance between available electricity (PV + import) and electricity demand (load + export) per hour
+        self.con["balance"] = m.addConstrs(
+            (
+                self.var["pv"][t] + self.var["import"][t]
+                == self.var["load"][t] + self.var["export"][t]
+                for t in T
+            ),
+            name="balance",
+        )
+
+        # Minimum load (consumer minimum)
+        self.con["load_min"] = m.addConstrs(
+            (
+                self.var["load"][t] >= d.load_min_kWh
+                for t in T
+            ),
+            name="load_min",
+        )
+
+        # Maximum load
+        self.con["load_max"] = m.addConstrs(
+            (
+                self.var["load"][t] <= d.load_max_kWh
+                for t in T
+            ),
+            name="load_max",
+        )
+
+        # Maximum available PV generation
+        self.con["pv_max"] = m.addConstrs(
+            (
+                self.var["pv"][t] <= d.pv_available[t]
+                for t in T
+            ),
+            name="pv_max",
+        )
 
         m.update()
         return self

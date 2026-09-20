@@ -107,3 +107,51 @@ def plot_scenario_comparison(
     ax.set(ylabel=ylabel, title=f"Scenario comparison - {metric}")
     ax.tick_params(axis="x", rotation=20)
     return _finish(fig, save_to)
+
+def plot_linear_disutility_sensitivity(
+    results: list[tuple[float, Results]],
+    data: InputData,
+    save_to: Path | str | None = None,
+) -> plt.Figure:
+    """Plot optimal daily load for different linear disutility coefficients."""
+
+    # Extract cL values and corresponding optimal daily load
+    cL_values = [cL for cL, _ in results]
+    total_load = [r.hourly["load"].sum() for _, r in results]
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    # Optimal daily load from the sensitivity analysis
+    ax.plot(
+        cL_values,
+        total_load,
+        marker="o",
+        label="optimal daily load",
+    )
+
+    # Total reference load
+    ax.axhline(
+        data.reference_load.sum(),
+        ls="--",
+        color="grey",
+        label="reference daily load",
+    )
+
+    # PV marginal cost threshold
+    ax.axvline(
+        data.pv_marginal_cost,
+        ls=":",
+        color="grey",
+        label=rf"$c^{{PV}}={data.pv_marginal_cost:.2f}$ DKK/kWh",
+    )
+
+    # Labels and title
+    ax.set(
+        xlabel=r"Linear disutility $c^L$ [DKK/kWh]",
+        ylabel="Daily load [kWh]",
+    )
+
+    ax.legend()
+
+    return _finish(fig, save_to)

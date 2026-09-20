@@ -16,8 +16,8 @@ import matplotlib
 
 from src.data_loader import load_question, list_questions
 from src.model import FlexibleConsumerModel, LinearDisutilityModel, Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule
-from src.scenarios import scale_prices, scale_pv, set_tariffs
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity
+from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -45,6 +45,71 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
         matplotlib.pyplot.show()
     return results
 
+def run_linear_disutility_sweep(out: Path):
+    """Run Q2 linear for different values of the linear disutility coefficient."""
+
+    # Load the original Q2 linear data
+    data = load_question("Q2_linear")
+
+    # Create a separate folder for the sensitivity results
+    sweep_out = out / "linear_disutility_sweep"
+    sweep_out.mkdir(parents=True, exist_ok=True)
+
+    # Values of cL to test
+    cL_values = [0.5, 1.0, 1.2, 1.3, 1.4, 1.409, 1.41, 1.411, 1.43, 1.5, 1.75, 2.0, 2.5, 3.0]
+
+    results = []
+
+    for cL in cL_values:
+        # Change only the linear disutility coefficient
+        scenario_data = set_linear_disutility(data, cL)
+
+        # Build and solve the Q2 linear model
+        model = LinearDisutilityModel(scenario_data).build()
+        result = model.solve()
+
+        # Save the detailed results without overwriting the base case
+        result.save(sweep_out, tag=f"cL_{cL:.2f}")
+
+        results.append((cL, result))
+
+        # Daily quantities for the report
+        daily_load = result.hourly["load"].sum()
+
+        absolute_deviation = abs(
+            result.hourly["load"] - scenario_data.reference_load
+        ).sum()
+
+        total_disutility = cL * absolute_deviation
+
+        procurement_cost = (
+            scenario_data.pv_marginal_cost * result.hourly["pv"]
+            + (scenario_data.energy_price + scenario_data.import_tariff)
+            * result.hourly["import"]
+            - (scenario_data.energy_price - scenario_data.export_tariff)
+            * result.hourly["export"]
+        ).sum()
+
+        binding_hours = (
+            abs(result.hourly["load"] - scenario_data.reference_load) > 1e-6
+        ).sum()
+
+        print(
+            f"cL={cL:.3f} | "
+            f"procurement={procurement_cost:.2f} DKK | "
+            f"disutility={total_disutility:.2f} DKK | "
+            f"load={daily_load:.1f} kWh | "
+            f"deviation={absolute_deviation:.1f} kWh | "
+            f"binding={binding_hours} h"
+        )
+
+    plot_linear_disutility_sensitivity(
+    results,
+    data,
+    save_to=sweep_out / "linear_disutility_sensitivity.png",
+    )
+
+    return results
 
 def run_scenarios(question: str, out: Path) -> dict[str, Results]:
     """Example sensitivity analysis. Replace with the scenarios you design in Question 1.g."""
@@ -81,7 +146,10 @@ def main() -> None:
 
     base = run_base_case(args.question, out, args.show)
     if args.scenarios and base is not None:
-        run_scenarios(args.question, out)
+            if args.question == "Q2_linear":
+                run_linear_disutility_sweep(out)
+            else:
+                run_scenarios(args.question, out)
     print(f"\nOutputs written to {out}")
 
 

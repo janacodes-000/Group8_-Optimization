@@ -155,3 +155,50 @@ def plot_linear_disutility_sensitivity(
     ax.legend()
 
     return _finish(fig, save_to)
+
+def plot_q3_comparison(
+    result_q2: Results,
+    result_q3: Results,
+    data: InputData,
+    save_to: Path | str | None = None,
+) -> plt.Figure:
+    """Compare the reference load with Q2 quadratic and Q3 optimal load schedules."""
+
+    h = result_q2.hourly.index.to_numpy()
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    # Reference load profile
+    ax.step(
+        h,
+        data.reference_load,
+        where="mid",
+        ls="--",
+        label="reference load",
+    )
+
+    # Q2(c): unconstrained quadratic-disutility load
+    ax.step(
+        h,
+        result_q2.hourly["load"],
+        where="mid",
+        label="Q2 quadratic",
+    )
+
+    # Q3: quadratic disutility + minimum daily energy requirement
+    ax.step(
+        h,
+        result_q3.hourly["load"],
+        where="mid",
+        label="Q3 minimum energy",
+    )
+
+    ax.set(
+        xlabel="hour",
+        ylabel="load [kWh/h]",
+        title="Q2(c) and Q3 load comparison",
+    )
+
+    ax.legend()
+
+    return _finish(fig, save_to)

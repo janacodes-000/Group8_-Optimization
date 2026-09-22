@@ -312,3 +312,67 @@ _STATUS = {
 
 def _status_name(code: int) -> str:
     return _STATUS.get(code, f"STATUS_{code}")
+
+class QuadraticDisutilityModel(FlexibleConsumerModel):
+    """Flexible consumer with quadratic deviation disutility (Question 2c)."""
+
+    def build(self) -> "QuadraticDisutilityModel":
+
+        # Use the same physical variables and constraints as Q1/Q2 linear
+        super()._build_physical_model()
+
+        d, m, T = self.data, self.m, self.T
+
+        # Check that the required Q2 quadratic input data is available
+        if d.reference_load is None:
+            raise ValueError("Q2 quadratic requires a reference load profile.")
+
+        if d.quadratic_disutility is None:
+            raise ValueError("Q2 quadratic requires a quadratic disutility coefficient.")
+
+        # Objective:
+        # quadratic disutility + PV production cost + grid import cost - grid export revenue
+        m.setObjective(
+            gp.quicksum(
+                d.quadratic_disutility
+                * (self.var["load"][t] - d.reference_load[t]) ** 2
+
+                + d.pv_marginal_cost * self.var["pv"][t]
+
+                + (d.energy_price[t] + d.import_tariff)
+                * self.var["import"][t]
+
+                - (d.energy_price[t] - d.export_tariff)
+                * self.var["export"][t]
+
+                for t in T
+            ),
+            GRB.MINIMIZE,
+        )
+
+        m.update()
+        return self
+
+class DailyEnergyModel(QuadraticDisutilityModel):
+    """Quadratic disutility model with minimum daily energy requirement (Question 3)."""
+
+    def build(self) -> "DailyEnergyModel":
+
+        # First build the complete Q2 quadratic model
+        super().build()
+
+        d, m, T = self.data, self.m, self.T
+
+        # Check that Q3 input data is available
+        if d.min_daily_energy_kWh is None:
+            raise ValueError("Q3 requires a minimum daily energy requirement.")
+
+        # Minimum total daily energy consumption
+        self.con["min_daily_energy"] = m.addConstr(
+            gp.quicksum(self.var["load"][t] for t in T)
+            >= d.min_daily_energy_kWh,
+            name="min_daily_energy",
+        )
+
+        m.update()
+        return self

@@ -15,9 +15,10 @@ from pathlib import Path
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, LinearDisutilityModel, Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, Results
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison
 from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility
+from src.analysis import compare_q2_q3
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -29,6 +30,10 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
 
     if question == "Q2_linear":
         model = LinearDisutilityModel(data).build()
+    elif question == "Q2_quadratic":
+        model = QuadraticDisutilityModel(data).build()
+    elif question == "Q3":
+        model = DailyEnergyModel(data).build()
     else:
         model = FlexibleConsumerModel(data).build()
     try:
@@ -110,6 +115,48 @@ def run_linear_disutility_sweep(out: Path):
     )
 
     return results
+
+def run_q3_comparison(out: Path):
+    """Run and compare the Q2 quadratic and Q3 base cases."""
+
+    data_q2 = load_question("Q2_quadratic")
+    data_q3 = load_question("Q3")
+
+    result_q2 = QuadraticDisutilityModel(data_q2).build().solve()
+    result_q3 = DailyEnergyModel(data_q3).build().solve()
+
+    comp_out = out / "q3_comparison"
+    comp_out.mkdir(parents=True, exist_ok=True)
+
+    result_q2.save(comp_out, tag="Q2_quadratic")
+    result_q3.save(comp_out, tag="Q3")
+
+    metrics = compare_q2_q3(
+        data_q2,
+        result_q2,
+        data_q3,
+        result_q3,
+    )
+
+    print("\nQ3 comparison")
+    print(f"Q2 quadratic load      : {metrics['load_q2']:.2f} kWh")
+    print(f"Q3 load                : {metrics['load_q3']:.2f} kWh")
+    print(f"Q2 procurement cost    : {metrics['procurement_q2']:.2f} DKK")
+    print(f"Q3 procurement cost    : {metrics['procurement_q3']:.2f} DKK")
+    print(f"Q2 disutility          : {metrics['disutility_q2']:.2f} DKK")
+    print(f"Q3 disutility          : {metrics['disutility_q3']:.2f} DKK")
+    print(f"Q2 hours above ref     : {metrics['above_ref_q2']}")
+    print(f"Q3 hours above ref     : {metrics['above_ref_q3']}")
+    print(f"Q3 energy dual         : {metrics['energy_dual_q3']:.4f}")
+
+    plot_q3_comparison(
+        result_q2,
+        result_q3,
+        data_q3,
+        save_to=comp_out / "q2_q3_load_comparison.png",
+    )
+
+    return metrics
 
 def run_scenarios(question: str, out: Path) -> dict[str, Results]:
     """Example sensitivity analysis. Replace with the scenarios you design in Question 1.g."""

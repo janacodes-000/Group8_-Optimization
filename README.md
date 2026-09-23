@@ -57,12 +57,13 @@ input figure to `results/Q1_caseA/`. Until you complete the model (see Section 3
 ## 2. Repository structure
 
 ```
-main.py                  Entry point: load data -> build model -> solve -> save results and figures
+main.py                  Entry point: load data -> build model -> solve -> analyse -> save results and figures
 src/
-  data_loader.py         load_question("Q1_caseA") -> InputData (all parameters, with units)
-  model.py               FlexibleConsumerModel: build() / solve() -> Results (primal + dual values)
-  scenarios.py           Helpers that derive sensitivity scenarios from a base InputData
-  plotting.py            Figures for inputs, optimal schedule, duals and scenario comparisons
+  data_loader.py         Load and validate input data for each assignment case
+  model.py               Gurobi optimisation models for Q1, Q2 and Q3
+  scenarios.py           Helpers to create modified input scenarios for sensitivity analyses
+  analysis.py            Post-processing, summary metrics and comparison of solved optimisation cases
+  plotting.py            Figures for input data, optimal schedules, duals and comparisons
 data/
   appliance_params.json  SHARED catalogue: every PV system, flexible load and battery - see Section 4
   bus_params.json        SHARED grid connection: prices (both days) and tariffs
@@ -87,6 +88,9 @@ experiment in `main.py`.
 ```bash
 python main.py --question Q1_caseA              # base case
 python main.py --question Q1_caseA --scenarios  # + example sensitivity scenarios
+python main.py --question Q2_linear
+python main.py --question Q2_quadratic
+python main.py --question Q3
 python main.py --show                           # open the figures in a window
 ```
 
@@ -115,6 +119,19 @@ constraints - the gurobipy pattern for each step is shown in comments (including
 if you ever declare binary variables). Complete it with your formulation from Question 1, then extend
 or subclass it for the following questions.
 Everything downstream (solving, extraction of primal and dual values, saving, plotting) already works.
+
+### Implemented optimisation models (written from us)
+
+The optimisation models are implemented in `src/model.py`.
+
+- `FlexibleConsumerModel` implements Question 1 with price-elastic hourly consumption.
+- `LinearDisutilityModel` implements Question 2(b) with absolute-deviation disutility.
+- `QuadraticDisutilityModel` implements Question 2(c) with quadratic disutility.
+- `DailyEnergyModel` implements Question 3 by extending the quadratic-disutility model with a minimum daily energy requirement.
+
+The models share the same physical variables and constraints where possible. Later questions are implemented by subclassing earlier models to avoid duplicated code.
+
+Every variable family is stored in `self.var` and every constraint for which dual values are required is stored in `self.con`. The existing `solve()` method then extracts primal and dual results automatically.
 
 **Conventions that make the primal and dual values come out for free**
 

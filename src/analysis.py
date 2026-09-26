@@ -64,6 +64,79 @@ def calculate_quadratic_disutility(
         ).sum()
     )
 
+def analyze_linear_sensitivity(
+    data: InputData,
+    results: list[tuple[float, Results]],
+) -> list[dict]:
+    """Calculate summary metrics for a linear-disutility sensitivity sweep."""
+
+    metrics = []
+
+    for cL, result in results:
+
+        # Difference between optimized and preferred load
+        deviation = result.hourly["load"] - data.reference_load
+
+        # Total absolute deviation from reference profile
+        absolute_deviation = abs(deviation).sum()
+
+        # Linear disutility
+        disutility = cL * absolute_deviation
+
+        # Electricity procurement cost
+        procurement_cost = calculate_procurement_cost(data, result)
+
+        # Total daily consumption
+        daily_load = result.hourly["load"].sum()
+
+        metrics.append({
+            "cL": cL,
+            "daily_load": daily_load,
+            "absolute_deviation": absolute_deviation,
+            "disutility": disutility,
+            "procurement_cost": procurement_cost,
+        })
+
+    return metrics
+
+def analyze_quadratic_sensitivity(
+    data: InputData,
+    results: list[tuple[float, Results]],
+) -> list[dict]:
+    """Calculate summary metrics for a quadratic-disutility sensitivity sweep."""
+
+    metrics = []
+
+    for cQ, result in results:
+
+        # Difference between optimized and preferred load
+        deviation = result.hourly["load"] - data.reference_load
+
+        # Total absolute deviation for easy interpretation
+        absolute_deviation = abs(deviation).sum()
+
+        # Sum of squared deviations
+        squared_deviation = (deviation**2).sum()
+
+        # Quadratic disutility
+        disutility = cQ * squared_deviation
+
+        # Electricity procurement cost
+        procurement_cost = calculate_procurement_cost(data, result)
+
+        # Total daily consumption
+        daily_load = result.hourly["load"].sum()
+
+        metrics.append({
+            "cQ": cQ,
+            "daily_load": daily_load,
+            "absolute_deviation": absolute_deviation,
+            "squared_deviation": squared_deviation,
+            "disutility": disutility,
+            "procurement_cost": procurement_cost,
+        })
+
+    return metrics
 
 def compare_q2_q3(
     data_q2: InputData,

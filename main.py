@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from turtle import pd
 
 import matplotlib
 
 from src.data_loader import load_question, list_questions
 from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison
-from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility
-from src.analysis import compare_q2_q3
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity 
+from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility
+from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -53,65 +54,114 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
 def run_linear_disutility_sweep(out: Path):
     """Run Q2 linear for different values of the linear disutility coefficient."""
 
-    # Load the original Q2 linear data
     data = load_question("Q2_linear")
 
-    # Create a separate folder for the sensitivity results
-    sweep_out = out / "linear_disutility_sweep"
-    sweep_out.mkdir(parents=True, exist_ok=True)
-
-    # Values of cL to test
-    cL_values = [0.5, 1.0, 1.2, 1.3, 1.4, 1.409, 1.41, 1.411, 1.43, 1.5, 1.75, 2.0, 2.5, 3.0]
+    cL_values = [
+        0.5, 1.0, 1.2, 1.3, 1.4,
+        1.409, 1.41, 1.411, 1.43,
+        1.5, 1.75, 2.0, 2.5, 3.0
+    ]
 
     results = []
 
     for cL in cL_values:
-        # Change only the linear disutility coefficient
+
+        # Create scenario
         scenario_data = set_linear_disutility(data, cL)
 
-        # Build and solve the Q2 linear model
-        model = LinearDisutilityModel(scenario_data).build()
-        result = model.solve()
-
-        # Save the detailed results without overwriting the base case
-        result.save(sweep_out, tag=f"cL_{cL:.2f}")
+        # Solve model
+        result = LinearDisutilityModel(scenario_data).build().solve()
 
         results.append((cL, result))
 
-        # Daily quantities for the report
-        daily_load = result.hourly["load"].sum()
+    # Analyze all results
+    metrics = analyze_linear_sensitivity(data, results)
 
-        absolute_deviation = abs(
-            result.hourly["load"] - scenario_data.reference_load
-        ).sum()
+    metrics_df = pd.DataFrame(metrics)
 
-        total_disutility = cL * absolute_deviation
+    metrics_df.to_csv(
+        out / "linear_disutility_sensitivity.csv",
+        index=False,
+    )
 
-        procurement_cost = (
-            scenario_data.pv_marginal_cost * result.hourly["pv"]
-            + (scenario_data.energy_price + scenario_data.import_tariff)
-            * result.hourly["import"]
-            - (scenario_data.energy_price - scenario_data.export_tariff)
-            * result.hourly["export"]
-        ).sum()
-
-        binding_hours = (
-            abs(result.hourly["load"] - scenario_data.reference_load) > 1e-6
-        ).sum()
-
+    # Print summary
+    for m in metrics:
         print(
-            f"cL={cL:.3f} | "
-            f"procurement={procurement_cost:.2f} DKK | "
-            f"disutility={total_disutility:.2f} DKK | "
-            f"load={daily_load:.1f} kWh | "
-            f"deviation={absolute_deviation:.1f} kWh | "
-            f"binding={binding_hours} h"
+            f"cL={m['cL']:.3f} | "
+            f"load={m['daily_load']:.1f} kWh | "
+            f"deviation={m['absolute_deviation']:.1f} kWh | "
+            f"procurement={m['procurement_cost']:.2f} DKK | "
+            f"disutility={m['disutility']:.2f} DKK"
         )
 
     plot_linear_disutility_sensitivity(
-    results,
-    data,
-    save_to=sweep_out / "linear_disutility_sensitivity.png",
+        results,
+        data,
+        save_to=out / "linear_disutility_sensitivity.png",
+    )
+
+    return results
+
+def run_quadratic_disutility_sweep(out: Path):
+    """Run Q2 quadratic for different values of the quadratic disutility coefficient."""
+
+    data = load_question("Q2_quadratic")
+
+    cQ_values = [
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    20.0,
+    ]
+
+    results = []
+
+    for cQ in cQ_values:
+
+        # Create scenario
+        scenario_data = set_quadratic_disutility(data, cQ)
+
+        # Solve model
+        result = QuadraticDisutilityModel(
+            scenario_data
+        ).build().solve()
+
+        results.append((cQ, result))
+
+    # Analyze results
+    metrics = analyze_quadratic_sensitivity(
+        data,
+        results,
+    )
+
+    metrics_df = pd.DataFrame(metrics)
+
+    metrics_df.to_csv(
+        out / "quadratic_disutility_sensitivity.csv",
+        index=False,
+    )
+
+    # Print summary
+    for m in metrics:
+        print(
+            f"cQ={m['cQ']:.3f} | "
+            f"load={m['daily_load']:.1f} kWh | "
+            f"deviation={m['absolute_deviation']:.1f} kWh | "
+            f"procurement={m['procurement_cost']:.2f} DKK | "
+            f"disutility={m['disutility']:.2f} DKK"
+        )
+
+    plot_quadratic_disutility_sensitivity(
+        results,
+        data,
+        save_to=out / "quadratic_disutility_sensitivity.png",
     )
 
     return results
@@ -192,11 +242,17 @@ def main() -> None:
         matplotlib.use("Agg")
 
     base = run_base_case(args.question, out, args.show)
+
     if args.scenarios and base is not None:
-            if args.question == "Q2_linear":
-                run_linear_disutility_sweep(out)
-            else:
-                run_scenarios(args.question, out)
+
+        if args.question == "Q2_linear":
+            run_linear_disutility_sweep(out)
+
+        elif args.question == "Q2_quadratic":
+            run_quadratic_disutility_sweep(out)
+
+        else:
+            run_scenarios(args.question, out)
     print(f"\nOutputs written to {out}")
 
 

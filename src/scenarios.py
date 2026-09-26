@@ -73,3 +73,7 @@ def set_load_preferences(
 def set_linear_disutility(data, value):
     """Return a copy of the input data with a modified linear disutility."""
     return replace(data, linear_disutility=value)
+
+def set_quadratic_disutility(data, value):
+    """Return a copy of the input data with a modified quadratic disutility."""
+    return replace(data, quadratic_disutility=value)

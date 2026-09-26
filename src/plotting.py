@@ -156,6 +156,33 @@ def plot_linear_disutility_sensitivity(
 
     return _finish(fig, save_to)
 
+def plot_quadratic_disutility_sensitivity(
+    results,
+    data,
+    save_to=None,
+):
+    """Plot deviation from reference load for different cQ values."""
+
+    cQ_values = [cQ for cQ, _ in results]
+
+    deviations = [
+        abs(result.hourly["load"] - data.reference_load).sum()
+        for _, result in results
+    ]
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    ax.plot(cQ_values, deviations, marker="o")
+
+    ax.set(
+        xlabel=r"Quadratic disutility $c^Q$ [DKK/kWh$^2$]",
+        ylabel="Absolute deviation from reference [kWh]",
+    )
+
+    ax.set_xscale("log")
+
+    return _finish(fig, save_to)
+
 def plot_q3_comparison(
     result_q2: Results,
     result_q3: Results,

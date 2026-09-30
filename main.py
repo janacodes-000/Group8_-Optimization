@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from turtle import pd
+#from turtle import pd
+import pandas as pd
 
 import matplotlib
 
 from src.data_loader import load_question, list_questions
 from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity 
-from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility
-from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity 
+from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences
+from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -208,6 +209,164 @@ def run_q3_comparison(out: Path):
 
     return metrics
 
+def run_q3_energy_sweep(out: Path):
+    """Run Q3 for different minimum daily energy requirements."""
+
+    data = load_question("Q3")
+
+    Emin_values = [
+        15.0,
+        20.0,
+        22.0,
+
+        # Fine resolution around unconstrained optimum
+        22.70,
+        22.72,
+        22.74,
+        22.76,
+        22.77,
+        22.78,
+        22.80,
+        22.82,
+        22.85,
+        22.90,
+
+        23.0,
+        25.0,
+        30.0,
+
+        # Reference-profile energy
+        32.34,
+
+        35.0,
+        40.0,
+        45.0,
+        50.0,
+    ]
+
+    results = []
+
+    for Emin in Emin_values:
+
+        # Create Q3 scenario with modified minimum daily energy
+        scenario_data = set_load_preferences(
+            data,
+            min_daily_energy_kWh=Emin,
+        )
+
+        # Solve Q3 model
+        result = DailyEnergyModel(
+            scenario_data
+        ).build().solve()
+
+        results.append((Emin, result))
+
+    # Analyse all sensitivity runs
+    metrics = analyze_q3_energy_sensitivity(
+        data,
+        results,
+    )
+
+    # Save numerical results
+    metrics_df = pd.DataFrame(metrics)
+
+    metrics_df.to_csv(
+        out / "q3_energy_sensitivity.csv",
+        index=False,
+    )
+
+    # Print summary
+    print("\nQ3 minimum-energy sensitivity")
+
+    for m in metrics:
+        print(
+            f"Emin={m['E_min']:5.2f} kWh | "
+            f"load={m['daily_load']:5.2f} kWh | "
+            f"objective={m['objective']:6.2f} DKK | "
+            f"dual={m['energy_dual']:6.3f} | "
+            f"import={m['import']:5.2f} kWh | "
+            f"PV={m['pv']:5.2f} kWh"
+        )
+
+    # Plot sensitivity
+    plot_q3_energy_sensitivity(
+        metrics,
+        data,
+        save_to=out / "q3_energy_sensitivity.png",
+    )
+
+    plot_q3_energy_supply_sensitivity(
+        metrics,
+        data,
+        save_to=out / "q3_energy_supply_sensitivity.png",
+    )
+    return results
+
+def run_q3_cq_sweep(out: Path):
+    """Run Q3 for different quadratic disutility coefficients."""
+
+    data = load_question("Q3")
+
+    cQ_values = [
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        20.0,
+    ]
+
+    results = []
+
+    for cQ in cQ_values:
+
+        scenario_data = set_quadratic_disutility(
+            data,
+            cQ,
+        )
+
+        result = DailyEnergyModel(
+            scenario_data
+        ).build().solve()
+
+        results.append((cQ, result))
+
+    metrics = analyze_q3_cq_sensitivity(
+        data,
+        results,
+    )
+
+    metrics_df = pd.DataFrame(metrics)
+
+    metrics_df.to_csv(
+        out / "q3_cq_sensitivity.csv",
+        index=False,
+    )
+
+    print("\nQ3 quadratic-disutility sensitivity")
+
+    for m in metrics:
+        print(
+            f"cQ={m['cQ']:6.3f} | "
+            f"load={m['daily_load']:5.2f} kWh | "
+            f"objective={m['objective']:7.2f} DKK | "
+            f"deviation={m['absolute_deviation']:5.2f} kWh | "
+            f"procurement={m['procurement_cost']:6.2f} DKK | "
+            f"dual={m['energy_dual']:6.3f}"
+        )
+
+    plot_q3_cq_sensitivity(
+        metrics,
+        save_to=out / "q3_cq_sensitivity.png",
+    )
+
+    return results
+
 def run_scenarios(question: str, out: Path) -> dict[str, Results]:
     """Example sensitivity analysis. Replace with the scenarios you design in Question 1.g."""
     base = load_question(question)
@@ -250,6 +409,10 @@ def main() -> None:
 
         elif args.question == "Q2_quadratic":
             run_quadratic_disutility_sweep(out)
+
+        elif args.question == "Q3":
+            run_q3_energy_sweep(out)
+            run_q3_cq_sweep(out)
 
         else:
             run_scenarios(args.question, out)

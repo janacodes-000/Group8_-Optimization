@@ -243,6 +243,10 @@ def main() -> None:
 
     base = run_base_case(args.question, out, args.show)
 
+    # Q3 requires comparison with the unconstrained Q2(c) case
+    if args.question == "Q3" and base is not None:
+        run_q3_comparison(out)
+
     if args.scenarios and base is not None:
 
         if args.question == "Q2_linear":
@@ -253,6 +257,7 @@ def main() -> None:
 
         else:
             run_scenarios(args.question, out)
+
     print(f"\nOutputs written to {out}")
 
 

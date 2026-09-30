@@ -63,7 +63,7 @@ def plot_schedule(results: Results, data: InputData, save_to: Path | str | None 
     if "reference_load" in hr:
         ax.step(h, hr["reference_load"], where="mid", color="C0", ls=":", label="reference load")
     ax.axhline(0, color="grey", lw=0.8)
-    ax.set(xlabel="hour", ylabel="kWh/h", title=f"Optimal schedule - {results.question} (cost {results.objective:.1f} DKK)")
+    ax.set(xlabel="hour", ylabel="kWh/h", title=f"Optimal schedule - {results.question} (objective {results.objective:.1f} DKK)")
 
     ax2 = ax.twinx()
     ax2.step(h, hr["price"], where="mid", color="C3", lw=1.2, label="energy price")
@@ -227,5 +227,209 @@ def plot_q3_comparison(
     )
 
     ax.legend()
+
+    return _finish(fig, save_to)
+
+def plot_q3_energy_sensitivity(
+    metrics: list[dict],
+    data: InputData,
+    save_to: Path | str | None = None,
+) -> plt.Figure:
+    """Plot objective and dual value for different minimum daily energy requirements."""
+
+    Emin_values = [m["E_min"] for m in metrics]
+    objectives = [m["objective"] for m in metrics]
+    energy_duals = [m["energy_dual"] for m in metrics]
+
+    binding_Emin = next(
+        (
+            m["E_min"]
+            for m in metrics
+            if m["energy_dual"] is not None
+            and m["energy_dual"] > 1e-4
+        ),
+        None,
+    )
+
+    fig, ax1 = plt.subplots(figsize=(8, 4.5))
+
+    ax1.plot(
+        Emin_values,
+        objectives,
+        marker="o",
+        label="optimal objective",
+    )
+
+    ax1.set(
+        xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
+        ylabel="Objective [DKK]",
+        title="Q3 sensitivity to minimum daily energy",
+    )
+
+    ax2 = ax1.twinx()
+
+    ax2.plot(
+        Emin_values,
+        energy_duals,
+        marker="s",
+        ls="--",
+        color="orange",
+        label=r"dual $\mu$",
+    )
+
+    ax2.set_ylabel(
+        r"Dual value $\mu$ [DKK/kWh]"
+    )
+    ax2.set_ylim(0, 3.6)
+
+    ax2.axhline(
+        0,
+        ls=":",
+        lw=1,
+    )
+
+    reference_energy = data.reference_load.sum()
+
+    ax1.axvline(
+        reference_energy,
+        ls="--",
+        color="grey",
+        label=f"reference load = {reference_energy:.2f} kWh",
+    )
+
+    if binding_Emin is not None:
+        ax1.axvline(
+            binding_Emin,
+            ls=":",
+            color="grey",
+            label=f"binding point ≈ {binding_Emin:.2f} kWh",
+        )
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+
+    ax1.legend(
+        lines1 + lines2,
+        labels1 + labels2,
+        loc="upper left",
+    )
+
+    return _finish(fig, save_to)
+
+def plot_q3_energy_supply_sensitivity(
+    metrics: list[dict],
+    data: InputData,
+    save_to: Path | str | None = None,
+) -> plt.Figure:
+    """Plot PV use and grid import for different minimum daily energy requirements."""
+
+    Emin_values = [m["E_min"] for m in metrics]
+    pv_use = [m["pv"] for m in metrics]
+    grid_import = [m["import"] for m in metrics]
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+
+    ax.plot(
+        Emin_values,
+        pv_use,
+        marker="o",
+        label="PV used",
+    )
+
+    ax.plot(
+        Emin_values,
+        grid_import,
+        marker="s",
+        ls="--",
+        label="grid import",
+    )
+
+    ax.axhline(
+        data.pv_available.sum(),
+        ls=":",
+        label=f"available PV = {data.pv_available.sum():.2f} kWh",
+    )
+
+    binding_Emin = 22.77
+    ax.axvline(
+        binding_Emin,
+        ls=":",
+        color="grey",
+        label=f"unconstrained optimum = {binding_Emin:.2f} kWh",
+    )
+
+    ax.axvline(
+        data.reference_load.sum(),
+        ls="--",
+        color="grey",
+        label=f"reference load = {data.reference_load.sum():.2f} kWh",
+    )
+
+    ax.set(
+        xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
+        ylabel="Daily energy [kWh]",
+        title="Q3 energy supply sensitivity",
+    )
+
+    ax.legend()
+
+    return _finish(fig, save_to)
+
+def plot_q3_cq_sensitivity(
+    metrics: list[dict],
+    save_to: Path | str | None = None,
+) -> plt.Figure:
+    """Plot deviation and procurement cost for different quadratic disutility coefficients."""
+
+    cQ_values = [m["cQ"] for m in metrics]
+    deviations = [m["absolute_deviation"] for m in metrics]
+    procurement_costs = [m["procurement_cost"] for m in metrics]
+
+    fig, ax1 = plt.subplots(figsize=(8, 4.5))
+
+    ax1.plot(
+        cQ_values,
+        deviations,
+        marker="o",
+        label="absolute deviation",
+    )
+
+    ax1.set(
+        xlabel=r"Quadratic disutility $c^Q$ [DKK/kWh$^2$]",
+        ylabel="Absolute deviation [kWh]",
+        title=r"Q3 sensitivity to quadratic disutility $c^Q$",
+    )
+
+    ax1.set_xscale("log")
+
+    ax2 = ax1.twinx()
+
+    ax2.plot(
+        cQ_values,
+        procurement_costs,
+        marker="s",
+        ls="--",
+        label="procurement cost",
+    )
+
+    ax2.set_ylabel(
+        "Procurement cost [DKK]"
+    )
+
+    ax1.axvline(
+        1.0,
+        ls=":",
+        color="grey",
+        label=r"base case $c^Q=1$",
+    )
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+
+    ax1.legend(
+        lines1 + lines2,
+        labels1 + labels2,
+        loc="best",
+    )
 
     return _finish(fig, save_to)

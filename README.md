@@ -91,6 +91,7 @@ python main.py --question Q1_caseA --scenarios  # + example sensitivity scenario
 python main.py --question Q2_linear
 python main.py --question Q2_quadratic
 python main.py --question Q3
+python main.py --question Q3_battery
 python main.py --show                           # open the figures in a window
 ```
 

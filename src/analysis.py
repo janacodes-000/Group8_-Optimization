@@ -252,3 +252,108 @@ def compare_q3_battery(data_q3, result_q3, data_bat, result_bat):
         "energy_dual_q3": result_q3.duals.get("min_daily_energy"),
         "energy_dual_battery": result_bat.duals.get("min_daily_energy"),
     }
+def analyze_q3_energy_sensitivity(
+    data: InputData,
+    results: list[tuple[float, Results]],
+) -> list[dict]:
+    """Calculate summary metrics for the Q3 minimum-energy sensitivity."""
+
+    metrics = []
+
+    for Emin, result in results:
+
+        deviation = result.hourly["load"] - data.reference_load
+
+        daily_load = float(result.hourly["load"].sum())
+
+        absolute_deviation = float(abs(deviation).sum())
+
+        squared_deviation = float((deviation**2).sum())
+
+        procurement_cost = calculate_procurement_cost(
+            data,
+            result,
+        )
+
+        disutility = (
+            data.quadratic_disutility
+            * squared_deviation
+        )
+
+        import_total = float(result.hourly["import"].sum())
+        export_total = float(result.hourly["export"].sum())
+        pv_total = float(result.hourly["pv"].sum())
+
+        above_reference_hours = int(
+            (
+                result.hourly["load"]
+                > data.reference_load + 1e-6
+            ).sum()
+        )
+
+        energy_dual = result.duals.get(
+            "min_daily_energy"
+        )
+
+        metrics.append({
+            "E_min": Emin,
+            "daily_load": daily_load,
+            "objective": float(result.objective),
+            "procurement_cost": procurement_cost,
+            "disutility": disutility,
+            "absolute_deviation": absolute_deviation,
+            "import": import_total,
+            "export": export_total,
+            "pv": pv_total,
+            "above_reference_hours": above_reference_hours,
+            "energy_dual": energy_dual,
+        })
+
+    return metrics
+
+def analyze_q3_cq_sensitivity(
+    data: InputData,
+    results: list[tuple[float, Results]],
+) -> list[dict]:
+    """Calculate summary metrics for the Q3 quadratic-disutility sensitivity."""
+
+    metrics = []
+
+    for cQ, result in results:
+
+        deviation = result.hourly["load"] - data.reference_load
+
+        absolute_deviation = float(abs(deviation).sum())
+        squared_deviation = float((deviation**2).sum())
+
+        procurement_cost = calculate_procurement_cost(
+            data,
+            result,
+        )
+
+        disutility = cQ * squared_deviation
+
+        daily_load = float(result.hourly["load"].sum())
+        import_total = float(result.hourly["import"].sum())
+        export_total = float(result.hourly["export"].sum())
+        pv_total = float(result.hourly["pv"].sum())
+
+        energy_dual = result.duals.get(
+            "min_daily_energy"
+        )
+
+        metrics.append({
+            "cQ": cQ,
+            "daily_load": daily_load,
+            "objective": float(result.objective),
+            "procurement_cost": procurement_cost,
+            "disutility": disutility,
+            "absolute_deviation": absolute_deviation,
+            "squared_deviation": squared_deviation,
+            "import": import_total,
+            "export": export_total,
+            "pv": pv_total,
+            "energy_dual": energy_dual,
+        })
+
+    return metrics

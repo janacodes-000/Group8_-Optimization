@@ -17,8 +17,8 @@ import pandas as pd
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity 
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity, plot_q3_battery_comparison 
 from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences
 from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity, compare_q3_battery
 

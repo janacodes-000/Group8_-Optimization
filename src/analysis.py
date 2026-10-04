@@ -196,6 +196,62 @@ def compare_q2_q3(
         "energy_dual_q3": result_q3.duals.get("min_daily_energy"),
     }
 
+
+def compare_q3_battery(data_q3, result_q3, data_bat, result_bat):
+    """Compare Q3 without and with battery storage."""
+
+    load_q3 = result_q3.hourly["load"]
+    load_bat = result_bat.hourly["load"]
+    reference = result_bat.hourly["reference_load"]
+
+    charge = result_bat.hourly["battery_charge"]
+    discharge = result_bat.hourly["battery_discharge"]
+
+    # Deviation from reference
+    abs_dev_q3 = (load_q3 - reference).abs().sum()
+    abs_dev_bat = (load_bat - reference).abs().sum()
+
+    sq_dev_q3 = ((load_q3 - reference) ** 2).sum()
+    sq_dev_bat = ((load_bat - reference) ** 2).sum()
+
+    # Battery value = reduction in objective
+    battery_value = result_q3.objective - result_bat.objective
+
+    # Check simultaneous charging/discharging
+    tol = 1e-6
+    simultaneous = (
+        (charge > tol) &
+        (discharge > tol)
+    )
+
+    return {
+        "objective_q3": result_q3.objective,
+        "objective_battery": result_bat.objective,
+        "battery_value": battery_value,
+
+        "load_q3": load_q3.sum(),
+        "load_battery": load_bat.sum(),
+
+        "abs_deviation_q3": abs_dev_q3,
+        "abs_deviation_battery": abs_dev_bat,
+
+        "sq_deviation_q3": sq_dev_q3,
+        "sq_deviation_battery": sq_dev_bat,
+
+        "import_q3": result_q3.hourly["import"].sum(),
+        "import_battery": result_bat.hourly["import"].sum(),
+
+        "export_q3": result_q3.hourly["export"].sum(),
+        "export_battery": result_bat.hourly["export"].sum(),
+
+        "battery_charge": charge.sum(),
+        "battery_discharge": discharge.sum(),
+
+        "simultaneous_hours": int(simultaneous.sum()),
+
+        "energy_dual_q3": result_q3.duals.get("min_daily_energy"),
+        "energy_dual_battery": result_bat.duals.get("min_daily_energy"),
+    }
 def analyze_q3_energy_sensitivity(
     data: InputData,
     results: list[tuple[float, Results]],

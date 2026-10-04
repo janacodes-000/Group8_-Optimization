@@ -17,10 +17,10 @@ import pandas as pd
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, Results
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel Results
 from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity 
 from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences
-from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity
+from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity, compare_q3_battery
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -36,6 +36,8 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
         model = QuadraticDisutilityModel(data).build()
     elif question == "Q3":
         model = DailyEnergyModel(data).build()
+    elif question == "Q3_battery":
+        model = BatteryModel(data).build()
     else:
         model = FlexibleConsumerModel(data).build()
     try:
@@ -209,6 +211,34 @@ def run_q3_comparison(out: Path):
 
     return metrics
 
+def run_q3_battery_comparison(out: Path):
+    """Compare Q3 without and with battery."""
+
+    data_q3 = load_question("Q3")
+    data_bat = load_question("Q3_battery")
+
+    result_q3 = DailyEnergyModel(data_q3).build().solve()
+    result_bat = BatteryModel(data_bat).build().solve()
+
+    metrics = compare_q3_battery(
+        data_q3,
+        result_q3,
+        data_bat,
+        result_bat,
+    )
+
+    plot_q3_battery_comparison(
+        result_q3,
+        result_bat,
+        data_bat,
+        save_to=out / "q3_battery_comparison.png",
+    )
+
+    print("\nQ3 battery comparison")
+    for key, value in metrics.items():
+        print(f"{key:25s}: {value}")
+
+    return metrics
 def run_q3_energy_sweep(out: Path):
     """Run Q3 for different minimum daily energy requirements."""
 
@@ -405,6 +435,8 @@ def main() -> None:
     # Q3 requires comparison with the unconstrained Q2(c) case
     if args.question == "Q3" and base is not None:
         run_q3_comparison(out)
+    if args.question == "Q3_battery" and base is not None:
+        run_q3_battery_comparison(out)
 
     if args.scenarios and base is not None:
 

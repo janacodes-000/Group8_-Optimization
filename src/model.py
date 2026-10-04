@@ -242,6 +242,11 @@ class FlexibleConsumerModel:
             except (AttributeError, gp.GurobiError):
                 # No duals available (e.g. model with integer variables)
                 pass
+        # Store final battery SoC separately because it has n_hours + 1 states
+        final_battery_soc = None
+
+        if "battery_soc" in self.var:
+            final_battery_soc = self.var["battery_soc"][d.n_hours].X
 
         return Results(
             question=d.question,
@@ -249,7 +254,8 @@ class FlexibleConsumerModel:
             objective=self.m.ObjVal,
             hourly=hourly,
             duals=duals,
-            meta={"scalar_variables": scalars},
+            meta={"scalar_variables": scalars,
+                 "final_battery_soc": final_battery_soc,},
         )
 
 
@@ -372,6 +378,136 @@ class DailyEnergyModel(QuadraticDisutilityModel):
             gp.quicksum(self.var["load"][t] for t in T)
             >= d.min_daily_energy_kWh,
             name="min_daily_energy",
+        )
+
+        m.update()
+        return self
+
+class BatteryModel(DailyEnergyModel):
+    """
+    Q3(g): Daily-energy model extended with battery storage.
+
+    Adds:
+    - battery charging
+    - battery discharging
+    - battery state of charge (SoC)
+    - charging/discharging efficiencies
+    - cyclic final SoC condition
+
+    Charging and discharging remain continuous variables.
+    """
+
+    def build(self) -> "BatteryModel":
+
+        # ----------------------------------------------------------
+        # 1. Build complete Q3 model
+        # ----------------------------------------------------------
+        super().build()
+
+        d, m, T = self.data, self.m, self.T
+
+        # Check that battery data is available
+        if d.battery_capacity_kWh is None:
+            raise ValueError("Q3_battery requires battery data.")
+
+        # ----------------------------------------------------------
+        # 2. Battery decision variables
+        # ----------------------------------------------------------
+
+        self.var["battery_charge"] = m.addVars(
+            T,
+            lb=0.0,
+            ub=d.battery_max_charge_kW,
+            vtype=GRB.CONTINUOUS,
+            name="battery_charge",
+        )
+
+        self.var["battery_discharge"] = m.addVars(
+            T,
+            lb=0.0,
+            ub=d.battery_max_discharge_kW,
+            vtype=GRB.CONTINUOUS,
+            name="battery_discharge",
+        )
+
+        # 25 SoC states for 24 operating periods:
+        # soc[0]  = beginning of hour 0
+        # soc[24] = end of hour 23
+        T_soc = range(d.n_hours + 1)
+
+        self.var["battery_soc"] = m.addVars(
+            T_soc,
+            lb=0.0,
+            ub=d.battery_capacity_kWh,
+            vtype=GRB.CONTINUOUS,
+            name="battery_soc",
+        )
+
+        charge = self.var["battery_charge"]
+        discharge = self.var["battery_discharge"]
+        soc = self.var["battery_soc"]
+
+        # ----------------------------------------------------------
+        # 3. Replace original electricity balance
+        # ----------------------------------------------------------
+
+        # Q3 currently contains:
+        #
+        # PV + import = load + export
+        #
+        # Remove it and replace it with the battery-aware balance.
+
+        for t in T:
+            m.remove(self.con["balance"][t])
+
+        self.con["balance"] = m.addConstrs(
+            (
+                self.var["pv"][t]
+                + self.var["import"][t]
+                + discharge[t]
+                ==
+                self.var["load"][t]
+                + self.var["export"][t]
+                + charge[t]
+                for t in T
+            ),
+            name="balance",
+        )
+
+        # ----------------------------------------------------------
+        # 4. Initial state of charge
+        # ----------------------------------------------------------
+
+        self.con["battery_initial_soc"] = m.addConstr(
+            soc[0] == d.battery_initial_soc_kWh,
+            name="battery_initial_soc",
+        )
+
+        # ----------------------------------------------------------
+        # 5. State-of-charge evolution
+        # ----------------------------------------------------------
+
+        self.con["battery_soc_balance"] = m.addConstrs(
+            (
+                soc[t + 1]
+                ==
+                soc[t]
+                + d.battery_charging_efficiency * charge[t]
+                - discharge[t] / d.battery_discharging_efficiency
+                for t in T
+            ),
+            name="battery_soc_balance",
+        )
+
+        # ----------------------------------------------------------
+        # 6. End-of-horizon condition
+        # ----------------------------------------------------------
+
+        # Cyclic boundary condition:
+        # final SoC = initial SoC
+        self.con["battery_final_soc"] = m.addConstr(
+            soc[d.n_hours] == soc[0],
+            name="battery_final_soc",
         )
 
         m.update()

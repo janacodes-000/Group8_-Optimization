@@ -62,6 +62,26 @@ def plot_schedule(results: Results, data: InputData, save_to: Path | str | None 
         ax.plot(h, hr["import"] - hr["export"], "k.-", label="net import (+) / export (-)")
     if "reference_load" in hr:
         ax.step(h, hr["reference_load"], where="mid", color="C0", ls=":", label="reference load")
+    if "battery_soc" in hr:
+
+        h_soc = np.arange(data.n_hours + 1)
+
+        soc = np.append(
+            hr["battery_soc"].to_numpy(),
+            results.meta["final_battery_soc"],
+        )
+
+        ax.plot(
+            h_soc,
+            soc,
+            color="C2",
+            ls="-.",
+            marker=".",
+            lw=1.5,
+            label="battery SoC [kWh]",
+        )
+
+        ax.set_xlim(-0.5, 24.5)
     ax.axhline(0, color="grey", lw=0.8)
     ax.set(xlabel="hour", ylabel="kWh/h", title=f"Optimal schedule - {results.question} (objective {results.objective:.1f} DKK)")
 
@@ -230,6 +250,66 @@ def plot_q3_comparison(
 
     return _finish(fig, save_to)
 
+
+def plot_q3_battery_comparison(
+    result_q3,
+    result_bat,
+    data,
+    save_to=None,
+):
+    """Compare optimal load without and with battery."""
+
+    hr_q3 = result_q3.hourly
+    hr_bat = result_bat.hourly
+    h = hr_q3.index.to_numpy()
+
+    fig, ax = plt.subplots(figsize=(11, 4.2))
+
+    # Reference profile
+    ax.step(
+        h,
+        data.reference_load,
+        where="mid",
+        color="grey",
+        ls=":",
+        lw=2,
+        label="reference load",
+    )
+
+    # Q3 without battery
+    ax.step(
+        h,
+        hr_q3["load"],
+        where="mid",
+        color="C0",
+        lw=1.8,
+        label="Q3 without battery",
+    )
+
+    # Q3 with battery
+    ax.step(
+        h,
+        hr_bat["load"],
+        where="mid",
+        color="C2",
+        lw=1.8,
+        label="Q3 with battery",
+    )
+
+    ax.set(
+        xlabel="hour",
+        ylabel="kWh/h",
+        title="Effect of battery on optimal load schedule",
+    )
+
+    ax.legend(
+        fontsize=8,
+        ncol=3,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+    )
+
+    return _finish(fig, save_to)
 def plot_q3_energy_sensitivity(
     metrics: list[dict],
     data: InputData,

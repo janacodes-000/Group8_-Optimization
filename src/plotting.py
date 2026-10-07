@@ -513,3 +513,45 @@ def plot_q3_cq_sensitivity(
     )
 
     return _finish(fig, save_to)
+
+
+def plot_battery_value_sensitivity(
+    results,
+    x_key,
+    xlabel,
+    base_x=None,
+    save_to=None,
+):
+    x = [r[x_key] for r in results]
+    y = [r["battery_value"] for r in results]
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    # Sensitivity curve
+    ax.plot(x, y, marker="o")
+
+    # Mark base case
+    if base_x is not None:
+        base_index = x.index(base_x)
+        base_y = y[base_index]
+
+        ax.scatter(
+            base_x,
+            base_y,
+            marker="D",
+            s=70,
+            zorder=3,
+            label="Base case",
+        )
+        
+    ax.set(
+        xlabel=xlabel,
+        ylabel="Battery value [DKK/day]",
+    )
+
+    ax.grid(alpha=0.3)
+
+    if base_x is not None:
+        ax.legend()
+
+    return _finish(fig, save_to)

@@ -77,3 +77,11 @@ def set_linear_disutility(data, value):
 def set_quadratic_disutility(data, value):
     """Return a copy of the input data with a modified quadratic disutility."""
     return replace(data, quadratic_disutility=value)
+
+def set_battery_capacity(data: InputData, capacity_kWh: float) -> InputData:
+    """Return a copy with modified battery energy capacity."""
+    return replace(
+        data,
+        battery_capacity_kWh=capacity_kWh,
+        battery_initial_soc_kWh=0.5 * capacity_kWh,
+    )

@@ -17,9 +17,9 @@ import pandas as pd
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity, plot_q3_battery_comparison 
-from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel, Results
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity, plot_q3_battery_comparison, plot_battery_value_sensitivity
+from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences, set_battery_capacity
 from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity, compare_q3_battery
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -397,6 +397,88 @@ def run_q3_cq_sweep(out: Path):
 
     return results
 
+def run_q3_battery_sensitivity(out: Path):
+    """Sensitivity of battery value to price variation and capacity."""
+
+    base_no_bat = load_question("Q3")
+    base_bat = load_question("Q3_battery")
+
+    # ---------------------------------------------------------
+    # 1. Price variation: scale spread while keeping mean fixed
+    # ---------------------------------------------------------
+    price_factors = [0.0, 0.5, 1.0, 1.5, 2.0]
+    price_results = []
+
+    for factor in price_factors:
+        data_no_bat = scale_prices(base_no_bat, factor, keep_mean=True)
+        data_bat = scale_prices(base_bat, factor, keep_mean=True)
+
+        result_no_bat = DailyEnergyModel(data_no_bat).build().solve()
+        result_bat = BatteryModel(data_bat).build().solve()
+
+        price_results.append({
+            "factor": factor,
+            "battery_value": result_no_bat.objective - result_bat.objective,
+        })
+
+    # ---------------------------------------------------------
+    # 2. Battery capacity
+    # ---------------------------------------------------------
+    capacities = [1.0, 2.0, 4.0, 6.0, 8.0]
+    capacity_results = []
+
+    # No-battery case is identical for all capacities
+    result_no_bat = DailyEnergyModel(base_no_bat).build().solve()
+
+    for capacity in capacities:
+        data_bat = set_battery_capacity(base_bat, capacity)
+        result_bat = BatteryModel(data_bat).build().solve()
+
+        capacity_results.append({
+            "capacity": capacity,
+            "battery_value": result_no_bat.objective - result_bat.objective,
+        })
+
+    # Save results
+    pd.DataFrame(price_results).to_csv(
+        out / "battery_price_sensitivity.csv", index=False
+    )
+    pd.DataFrame(capacity_results).to_csv(
+        out / "battery_capacity_sensitivity.csv", index=False
+    )
+
+    print("\nBattery value - price variation")
+    for r in price_results:
+        print(
+            f"spread={r['factor']:4.1f} | "
+            f"value={r['battery_value']:6.3f} DKK/day"
+        )
+
+    print("\nBattery value - capacity")
+    for r in capacity_results:
+        print(
+            f"capacity={r['capacity']:4.1f} kWh | "
+            f"value={r['battery_value']:6.3f} DKK/day"
+        )
+
+    plot_battery_value_sensitivity(
+    price_results,
+    "factor",
+    "Price variation factor",
+    base_x=1.0,
+    save_to=out / "battery_price_sensitivity.png",
+)
+
+    plot_battery_value_sensitivity(
+    capacity_results,
+    "capacity",
+    "Battery capacity [kWh]",
+    base_x=4.0,
+    save_to=out / "battery_capacity_sensitivity.png",
+    )
+
+    return price_results, capacity_results
+
 def run_scenarios(question: str, out: Path) -> dict[str, Results]:
     """Example sensitivity analysis. Replace with the scenarios you design in Question 1.g."""
     base = load_question(question)
@@ -449,6 +531,9 @@ def main() -> None:
         elif args.question == "Q3":
             run_q3_energy_sweep(out)
             run_q3_cq_sweep(out)
+
+        elif args.question == "Q3_battery":
+            run_q3_battery_sensitivity(out)
 
         else:
             run_scenarios(args.question, out)

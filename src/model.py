@@ -38,7 +38,7 @@ class Results:
     Methods
     -------
     save(folder, tag="")
-        Write hourly data, summaries and available comparison/state tables.
+        Write hourly CSV, JSON summary and complete battery states when present.
     """
 
     question: str
@@ -56,7 +56,7 @@ class Results:
     )  # daily economic components in DKK
 
     def save(self, folder: Path | str, tag: str = "") -> None:
-        """Save hourly data, summaries and available analytical or battery-state tables.
+        """Save hourly CSV, a JSON summary and complete battery states when present.
 
         Parameters
         ----------
@@ -64,19 +64,16 @@ class Results:
             Output directory, created if it does not exist.
         tag : str, optional
             Scenario identifier appended to saved filenames.
+
+        Notes
+        -----
+        The JSON summary retains scenario inputs, validation diagnostics and
+        available analytical comparisons. Battery CSVs include terminal SoC.
         """
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         stem = f"{self.question}{'_' + tag if tag else ''}"
         self.hourly.to_csv(folder / f"{stem}_hourly.csv", index_label="hour")
-        with open(folder / f"{stem}_summary.txt", "w", encoding="utf-8") as f:
-            f.write(
-                f"status    : {self.status}\nobjective : {self.objective:.4f} DKK\n"
-            )
-            for k, v in self.duals.items():
-                f.write(f"dual[{k}] : {v:.4f}\n")
-            for k, v in self.metrics.items():
-                f.write(f"{k} : {v:.6f} DKK\n")
         (folder / f"{stem}_summary.json").write_text(
             json.dumps(
                 {
@@ -101,10 +98,6 @@ class Results:
             ).to_csv(
                 folder / f"{stem}_battery_states.csv",
                 index=False,
-            )
-        if "analytical_hourly" in self.meta:
-            pd.DataFrame(self.meta["analytical_hourly"]).to_csv(
-                folder / f"{stem}_analytical.csv", index=False
             )
 
     def __str__(self) -> str:

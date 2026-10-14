@@ -4,7 +4,7 @@
     python main.py --question Q2_linear     # another case
     python main.py --scenarios              # also run the example sensitivity scenarios
 
-Results (CSV, TXT, PNG) are written to ``results/<question>/``. Extend ``run_scenarios``
+Results (CSV, JSON, PNG) are written to ``results/<question>/``. Extend ``run_scenarios``
 with your own scenarios, or add a new function per question, as your analysis grows.
 """
 
@@ -130,8 +130,8 @@ Q1_SCENARIOS = {
 }
 
 
-def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
-    """Solve and save a sweep, returning (parameter value, Results) pairs.
+def _solve_sweep(data, model_class, values, transform, existing=None):
+    """Solve a sweep in memory, returning (parameter value, Results) pairs.
 
     Parameters
     ----------
@@ -143,10 +143,6 @@ def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
         Parameter values to evaluate, in sweep order.
     transform : callable
         Function taking (data, value) and returning the scenario inputs.
-    out : Path
-        Directory for saved results and figures.
-    tag : str
-        Scenario identifier appended to saved filenames.
     existing : dict[float, Results] or None, optional
         Solved results keyed by parameter value for identical physical inputs.
 
@@ -162,7 +158,6 @@ def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
         result = existing.get(value)
         if result is None:
             result = model_class(transform(data, value)).build().solve()
-        result.save(out, tag=f"{tag}_{value:g}")
         runs.append((value, result))
     return runs
 
@@ -225,8 +220,6 @@ def run_linear_disutility_sweep(out: Path, base_result: Results | None = None):
         LinearDisutilityModel,
         cL_values,
         set_linear_disutility,
-        out / "runs",
-        "cL",
         {data.linear_disutility: base_result} if base_result is not None else {},
     )
 
@@ -284,8 +277,6 @@ def run_quadratic_disutility_sweep(out: Path, base_result: Results | None = None
         QuadraticDisutilityModel,
         cQ_values,
         set_quadratic_disutility,
-        out / "runs",
-        "cQ",
         {data.quadratic_disutility: base_result} if base_result is not None else {},
     )
 
@@ -427,7 +418,6 @@ def run_q2_model_comparison(out: Path):
             {label: result for label, (_, result) in runs.items()},
             data_quadratic,
             save_to=folder / "comparison.png",
-            title=f"Q2(d): {scenario} — cL={cL:g} DKK/kWh, cQ={cQ:g} DKK/kWh²",
         )
     table = pd.DataFrame(metrics)
     table.to_csv(out / "comparison.csv", index=False)
@@ -718,8 +708,6 @@ def run_q3_energy_sweep(
         DailyEnergyModel,
         Emin_values,
         lambda d, value: set_load_preferences(d, min_daily_energy_kWh=value),
-        out / "energy_runs",
-        "Emin",
         {data.min_daily_energy_kWh: base_result} if base_result is not None else {},
     )
 
@@ -858,8 +846,6 @@ def run_q3_cq_sweep(out: Path, base_result: Results | None = None):
         DailyEnergyModel,
         cQ_values,
         set_quadratic_disutility,
-        out / "cq_runs",
-        "cQ",
         {data.quadratic_disutility: base_result} if base_result is not None else {},
     )
 
@@ -935,10 +921,6 @@ def run_q3_battery_sensitivity(
         if result_bat is None:
             result_bat = BatteryModel(data_bat).build().solve()
 
-        folder = out / "price_runs" / f"spread_{factor:g}"
-        result_no_bat.save(folder, tag="without_battery")
-        result_bat.save(folder, tag="with_battery")
-
         price_results.append(
             {
                 "factor": factor,
@@ -963,7 +945,6 @@ def run_q3_battery_sensitivity(
     result_no_bat = base_no_bat_result
     if result_no_bat is None:
         result_no_bat = DailyEnergyModel(base_no_bat).build().solve()
-    result_no_bat.save(out / "capacity_runs", tag="without_battery")
 
     for capacity in capacities:
         data_bat = set_battery_capacity(base_bat, capacity)
@@ -972,9 +953,6 @@ def run_q3_battery_sensitivity(
         )
         if result_bat is None:
             result_bat = BatteryModel(data_bat).build().solve()
-        result_bat.save(
-            out / "capacity_runs" / f"capacity_{capacity:g}", tag="with_battery"
-        )
 
         capacity_results.append(
             {
@@ -1059,7 +1037,8 @@ def run_scenarios(
         results = base_result if name == "base" else None
         if results is None:
             results = FlexibleConsumerModel(data).build().solve()
-        results.save(out, tag=name)
+        if name != "base" or base_result is None:
+            results.save(out, tag=name)
         runs[name] = results
         print(
             f"{name:>14}: net cost {results.objective:8.2f} DKK | import {results.hourly['import'].sum():5.1f} kWh"
@@ -1215,7 +1194,6 @@ def run_validation(out: Path):
     solved, rows = {}, []
     for label, data, cls, kwargs in cases:
         result = cls(data, **kwargs).build().solve()
-        result.save(out / label)
         solved[label] = result
         rows.append(
             {

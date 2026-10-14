@@ -185,6 +185,14 @@ The optimisation models are implemented in `src/model.py`.
 
 The models share the same physical variables and constraints where possible. Later questions are implemented by subclassing earlier models to avoid duplicated code.
 
+All question classes now configure one parameterized `FlexibleConsumerModel`:
+`preference` selects utility/linear/quadratic/temporal; `daily_energy` and
+`battery` enable coupling. Physical balances, procurement, absolute deviations
+and battery dynamics each have one implementation. The public class names are
+compatible wrappers. `MODEL_CLASSES`, `SWEEPS`, `Q1_SCENARIOS`,
+`Q2_COMPARISON_SELECTIONS` and `PRICE_PROFILES` in `main.py` declare experiments;
+the shared sweep runner saves outputs and reuses existing base-case solutions.
+
 Every variable family is stored in `self.var` and every constraint for which dual values are required is stored in `self.con`. The existing `solve()` method then extracts primal and dual results automatically.
 
 **Conventions that make the primal and dual values come out for free**

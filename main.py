@@ -13,14 +13,15 @@ import argparse
 from pathlib import Path
 #from turtle import pd
 import pandas as pd
+import numpy as np
 
 import matplotlib
 
 from src.data_loader import load_question, list_questions
-from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel, Results
-from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity, plot_q3_battery_comparison, plot_battery_value_sensitivity
-from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences, set_battery_capacity
-from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity, compare_q3_battery
+from src.model import FlexibleConsumerModel, LinearDisutilityModel, QuadraticDisutilityModel, DailyEnergyModel, BatteryModel, Results, TemporalDisutilityModel
+from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule, plot_linear_disutility_sensitivity,plot_q3_comparison, plot_quadratic_disutility_sensitivity, plot_q3_energy_sensitivity, plot_q3_energy_supply_sensitivity, plot_q3_cq_sensitivity, plot_q3_battery_comparison, plot_battery_value_sensitivity, plot_q2_bonus_base, plot_q2_price_structure
+from src.scenarios import scale_prices, scale_pv, set_tariffs, set_linear_disutility, set_quadratic_disutility, set_load_preferences, set_battery_capacity, set_q2_price_structure
+from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quadratic_sensitivity, analyze_q3_energy_sensitivity, analyze_q3_cq_sensitivity, compare_q3_battery, compare_q2_disutility_models
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -168,6 +169,142 @@ def run_quadratic_disutility_sweep(out: Path):
     )
 
     return results
+
+
+def _run_q2_disutility_comparison(
+    data_linear,
+    data_quadratic,
+    out: Path,
+    tag: str,
+):
+    """Solve each Q2 model once; reuse Results.save and Q2 analysis helpers."""
+
+    out.mkdir(parents=True, exist_ok=True)
+
+    models = {
+        "Linear": (data_linear, LinearDisutilityModel(data_linear)),
+        "Quadratic": (data_quadratic, QuadraticDisutilityModel(data_quadratic)),
+        "Temporal": (
+            data_quadratic,
+            TemporalDisutilityModel(data_quadratic, c0=0.5, cT=0.25),
+        ),
+    }
+
+    runs = {}
+
+    for label, (data, model) in models.items():
+        result = model.build().solve()
+        result.save(out, tag=f"{tag.lower()}_{label.lower()}")
+        runs[label] = (data, result)
+
+    temporal_model = models["Temporal"][1]
+    metrics = compare_q2_disutility_models(
+        runs, c0=temporal_model.c0, cT=temporal_model.cT
+    )
+
+    return {label: result for label, (_, result) in runs.items()}, metrics
+
+
+def run_q2_bonus_base(out: Path):
+    """Run Q2(e)'s supplied-data comparison against Q2(b) and Q2(c)."""
+
+    data_linear = load_question("Q2_linear")
+    data_quadratic = load_question("Q2_quadratic")
+
+    # Confirm only the preference representation differs between base cases.
+    for field in [
+        "energy_price", "reference_load", "pv_available", "pv_marginal_cost",
+        "load_min_kWh", "load_max_kWh", "import_tariff", "export_tariff",
+    ]:
+        if not np.allclose(
+            getattr(data_linear, field), getattr(data_quadratic, field)
+        ):
+            raise ValueError(f"Q2 base physical inputs differ: {field}")
+
+    if not np.isclose(data_quadratic.quadratic_disutility, 1.0):
+        raise ValueError("The selected temporal parameters are calibrated to cQ = 1.")
+
+    runs, metrics = _run_q2_disutility_comparison(
+        data_linear, data_quadratic, out, tag="Base"
+    )
+
+    metrics_df = pd.DataFrame(metrics)
+    metrics_df.to_csv(out / "comparison.csv", index=False)
+
+    plot_q2_bonus_base(
+        runs, data_quadratic, save_to=out / "comparison.png"
+    )
+
+    print("\nQ2(e) base comparison")
+    print(metrics_df.round(4).to_string(index=False))
+
+    return metrics_df
+
+
+def run_q2_price_structure_experiment(out: Path):
+    """Compare alternating and clustered prices across the three Q2 models."""
+
+    data_linear = load_question("Q2_linear")
+    data_quadratic = load_question("Q2_quadratic")
+
+    if data_quadratic.n_hours != 24:
+        raise ValueError("The selected experiment uses 24 one-hour periods.")
+
+    profiles = {
+        "Alternating": np.tile([0.85, 2.50], 12),
+        "Clustered": np.repeat([0.85, 2.50], 12),
+    }
+
+    if not np.array_equal(
+        np.sort(profiles["Alternating"]), np.sort(profiles["Clustered"])
+    ):
+        raise ValueError("Price distributions must match exactly.")
+
+    reference_kWh = float(data_quadratic.reference_load.mean())
+    runs, metrics = {}, []
+
+    for profile_name, prices in profiles.items():
+        scenario_linear = set_q2_price_structure(
+            data_linear, prices, reference_kWh
+        )
+        scenario_quadratic = set_q2_price_structure(
+            data_quadratic, prices, reference_kWh
+        )
+
+        runs[profile_name], profile_metrics = _run_q2_disutility_comparison(
+            scenario_linear, scenario_quadratic, out, tag=profile_name
+        )
+
+        for values in profile_metrics:
+            metrics.append({"profile": profile_name, **values})
+
+    metrics_df = pd.DataFrame(metrics)
+    metrics_df.to_csv(out / "comparison.csv", index=False)
+
+    # Independent hourly models must be invariant to this price permutation.
+    for model_name in ["Linear", "Quadratic"]:
+        subset = metrics_df[metrics_df["model"] == model_name].set_index("profile")
+        for metric in ["surplus", "absolute_deviation"]:
+            if not np.isclose(
+                subset.loc["Alternating", metric],
+                subset.loc["Clustered", metric],
+                atol=1e-5,
+                rtol=1e-6,
+            ):
+                raise ValueError(f"Unexpected price-order effect: {model_name}, {metric}")
+
+    plot_q2_price_structure(
+        profiles,
+        runs,
+        np.full(24, reference_kWh),
+        save_to=out / "comparison.png",
+    )
+
+    print("\nQ2(e) price-structure comparison")
+    print(metrics_df.round(4).to_string(index=False))
+    print("\nObjective-component and separable-model checks passed.")
+
+    return metrics_df
 
 def run_q3_comparison(out: Path):
     """Run and compare the Q2 quadratic and Q3 base cases."""
@@ -505,7 +642,20 @@ def main() -> None:
     parser.add_argument("--question", default="Q1_caseA", choices=list_questions(), help="data case to use")
     parser.add_argument("--scenarios", action="store_true", help="also run the example sensitivity scenarios")
     parser.add_argument("--show", action="store_true", help="open the figures in a window")
+    parser.add_argument("--q2-bonus", action="store_true", help="run Q2(e) base and price-structure comparisons")
     args = parser.parse_args()
+
+
+    if args.q2_bonus:
+        if not args.show:
+            matplotlib.use("Agg")
+        out = RESULTS_DIR / "Q2_bonus"
+        run_q2_bonus_base(out / "base")
+        run_q2_price_structure_experiment(out / "price_structure")
+        if args.show:
+            matplotlib.pyplot.show()
+        print(f"\nOutputs written to {out}")
+        return
 
     out = RESULTS_DIR / args.question
     out.mkdir(parents=True, exist_ok=True)

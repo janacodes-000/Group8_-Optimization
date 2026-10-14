@@ -85,3 +85,30 @@ def set_battery_capacity(data: InputData, capacity_kWh: float) -> InputData:
         battery_capacity_kWh=capacity_kWh,
         battery_initial_soc_kWh=0.5 * capacity_kWh,
     )
+
+def set_q2_price_structure(
+    data: InputData,
+    prices,
+    reference_kWh: float,
+) -> InputData:
+    """Return a Q2 scenario with specified prices, constant reference and no PV.
+
+    Prices are in DKK/kWh and reference_kWh is consumption per one-hour
+    period. Reuses scale_pv; tariffs, bounds and preferences are retained.
+    """
+
+    prices = np.asarray(prices, dtype=float)
+    if prices.shape != (data.n_hours,) or not np.isfinite(prices).all():
+        raise ValueError("Supply one finite price per hour.")
+    if not np.isfinite(reference_kWh) or not (
+        data.load_min_kWh <= reference_kWh <= data.load_max_kWh
+    ):
+        raise ValueError("Constant reference must lie within the load bounds.")
+
+    no_pv = scale_pv(data, factor=0.0)
+
+    return replace(
+        no_pv,
+        energy_price=prices.copy(),
+        reference_load=np.full(data.n_hours, reference_kWh),
+    )

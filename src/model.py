@@ -359,6 +359,98 @@ class QuadraticDisutilityModel(FlexibleConsumerModel):
         m.update()
         return self
 
+class TemporalDisutilityModel(FlexibleConsumerModel):
+    """Q2(e): quadratic discomfort with coupling between adjacent hours.
+
+    c0 and cT are measured in DKK/kWh².
+    """
+
+    def __init__(
+        self,
+        data: InputData,
+        c0: float = 0.5,
+        cT: float = 0.25,
+        verbose: bool = False,
+    ):
+        super().__init__(
+            data,
+            name="temporal_disutility",
+            verbose=verbose,
+        )
+
+        if c0 <= 0 or cT < 0:
+            raise ValueError("Require c0 > 0 and cT >= 0.")
+
+        self.c0 = c0
+        self.cT = cT
+
+    def build(self) -> "TemporalDisutilityModel":
+        self._build_physical_model()
+
+        d, m, T = self.data, self.m, self.T
+
+        if d.reference_load is None:
+            raise ValueError("Temporal disutility requires a reference load.")
+
+        # Absolute deviation from the reference load
+        self.var["deviation"] = m.addVars(
+            T, lb=0.0, name="deviation"
+        )
+
+        a = self.var["deviation"]
+        load = self.var["load"]
+
+        self.con["deviation_pos"] = m.addConstrs(
+            (
+                a[t] >= load[t] - d.reference_load[t]
+                for t in T
+            ),
+            name="deviation_pos",
+        )
+
+        self.con["deviation_neg"] = m.addConstrs(
+            (
+                a[t] >= d.reference_load[t] - load[t]
+                for t in T
+            ),
+            name="deviation_neg",
+        )
+
+        # Individual hourly discomfort
+        hourly_disutility = self.c0 * gp.quicksum(
+            a[t] ** 2 for t in T
+        )
+
+        # Adjacent-hour discomfort, with zero padding at both boundaries
+        temporal_disutility = self.cT * (
+            a[0] ** 2
+            + gp.quicksum(
+                (a[t - 1] + a[t]) ** 2
+                for t in range(1, d.n_hours)
+            )
+            + a[d.n_hours - 1] ** 2
+        )
+
+        # Same procurement costs as the other Q2 models
+        procurement_cost = gp.quicksum(
+            d.pv_marginal_cost * self.var["pv"][t]
+            + (d.energy_price[t] + d.import_tariff)
+            * self.var["import"][t]
+            - (d.energy_price[t] - d.export_tariff)
+            * self.var["export"][t]
+            for t in T
+        )
+
+        m.setObjective(
+            procurement_cost
+            + hourly_disutility
+            + temporal_disutility,
+            GRB.MINIMIZE,
+        )
+
+        m.update()
+        return self
+
 class DailyEnergyModel(QuadraticDisutilityModel):
     """Quadratic disutility model with minimum daily energy requirement (Question 3)."""
 
@@ -512,3 +604,4 @@ class BatteryModel(DailyEnergyModel):
 
         m.update()
         return self
+

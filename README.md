@@ -228,3 +228,55 @@ your report. In practice:
 * make each experiment of the report runnable with a single command (e.g. `python main.py --question ...`
   or one notebook cell), and save its outputs under `results/`;
 * commit regularly and with meaningful messages - the git history is also a record of everyone's contribution.
+
+## 6. Question 2(e): temporal disutility bonus
+
+After adding `TemporalDisutilityModel` to `src/model.py`, reproduce Q2(e) with:
+
+```bash
+python main.py --q2-bonus
+python main.py --q2-bonus --show
+```
+
+This follows the existing structure:
+
+- `src/model.py`: the new temporal preference model reuses the physical model.
+- `main.py`: `run_q2_bonus_base` and `run_q2_price_structure_experiment` run
+  the experiments, in the same pattern as the existing Q2 sweeps and Q3 comparisons.
+- `src/analysis.py`: `compare_q2_disutility_models` reuses
+  `analyze_linear_sensitivity` and `analyze_quadratic_sensitivity` for Q2(b/c).
+  Procurement cost continues to use `calculate_procurement_cost`. Only the
+  temporal disutility calculation and cross-model comparison are new.
+- `src/scenarios.py`: `set_q2_price_structure` reuses `scale_pv` to remove PV
+  availability and overrides only the prices and reference load.
+- `src/plotting.py`: two new figures show the cross-model base comparison
+  and the controlled price-order experiment.
+
+There is no separate bonus-runner module. Models are solved once per case,
+their Results objects are shared by analysis and plotting, and hourly results
+are written with the existing `Results.save`. Neither coefficient sweep is
+rerun by the bonus command. Metrics retain the existing Q2 names:
+`daily_load`, `absolute_deviation`, `procurement_cost` and `disutility`.
+
+Tables and figures are saved under `results/Q2_bonus/base/` and
+`results/Q2_bonus/price_structure/`.
+
+With `a_t = |load_t - reference_t|`, temporal discomfort is
+`D = c0 * sum(a_t^2) + cT * sum((a_(t-1) + a_t)^2)`, including zero padding
+outside the day. The coefficients are `c0 = 0.5` and `cT = 0.25`
+DKK/kWh^2. Thus `c0 + 2*cT = 1`, matching the supplied quadratic model's
+penalty for isolated deviations; adjacent deviations incur an extra cost.
+The auxiliary-variable formulation is a convex QP.
+
+Base cases retain the supplied Q2 inputs. The controlled experiment uses
+twelve prices of 0.85 and twelve of 2.50 DKK/kWh, either alternating or in
+two twelve-hour blocks. Every model receives no PV availability and a constant
+reference equal to the original daily reference energy divided by 24.
+Tariffs, bounds and each model's coefficients are fixed. Only price ordering
+changes between the two profiles.
+
+Daily surplus is minus the Q2 objective under the zero-at-reference discomfort
+normalization. Its level depends on the preference representation; compare
+ordering effects within each model rather than treating cross-model surplus
+levels as a common welfare ranking. The runner verifies all objective cost
+components and the separable models' invariance to price ordering.

@@ -555,3 +555,50 @@ def plot_battery_value_sensitivity(
         ax.legend()
 
     return _finish(fig, save_to)
+
+
+def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None):
+    """Plot Q2 base schedules and absolute deviations, in kWh per hour."""
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+    colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
+    hours = data.hours
+    axes[0].plot(hours, data.reference_load, "k--", linewidth=2, label="Reference")
+    for label, result in runs.items():
+        load = result.hourly["load"].to_numpy()
+        axes[0].plot(hours, load, marker="o", markersize=3, color=colors[label], label=label)
+        axes[1].plot(hours, abs(load - data.reference_load), marker="o", markersize=3,
+                     color=colors[label], label=label)
+    axes[0].set_title("Q2 base case: comparison of disutility models")
+    axes[0].set_ylabel("Hourly consumption [kWh]")
+    axes[0].legend()
+    axes[1].set_ylabel("Absolute deviation [kWh]")
+    axes[1].set_xlabel("Hour")
+    axes[1].set_xticks(hours[::2])
+    for ax in axes:
+        ax.grid(alpha=0.25)
+    return _finish(fig, save_to)
+
+
+def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None):
+    """Compare hourly prices and Q2 loads for controlled price-order experiments."""
+    hours = range(len(reference))
+    fig, axes = plt.subplots(2, len(profiles), figsize=(13, 7), sharex=True,
+                             sharey="row", squeeze=False,
+                             gridspec_kw={"height_ratios": [1, 2]})
+    colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
+    for col, (profile, prices) in enumerate(profiles.items()):
+        axes[0, col].step(hours, prices, where="mid", color="black")
+        axes[0, col].set_title(profile)
+        axes[0, col].set_ylabel("Energy price [DKK/kWh]")
+        ax = axes[1, col]
+        ax.plot(hours, reference, "k--", label="Reference")
+        for label, result in runs[profile].items():
+            ax.plot(hours, result.hourly["load"], marker="o", markersize=3,
+                    color=colors[label], label=label)
+        ax.set_xlabel("Hour")
+        ax.set_ylabel("Hourly consumption [kWh]")
+        ax.set_xticks(list(hours)[::2])
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=4, fontsize=9)
+    for ax in axes.flat:
+        ax.grid(alpha=0.25)
+    return _finish(fig, save_to)

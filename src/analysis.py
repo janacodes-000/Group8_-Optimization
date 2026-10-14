@@ -357,3 +357,91 @@ def analyze_q3_cq_sensitivity(
         })
 
     return metrics
+
+def calculate_temporal_disutility(
+    data: InputData,
+    results: Results,
+    c0: float,
+    cT: float,
+) -> float:
+    """Return temporal disutility in DKK, with coefficients in DKK/kWh²."""
+
+    if data.reference_load is None:
+        raise ValueError("Temporal disutility requires a reference load.")
+    if c0 <= 0 or cT < 0:
+        raise ValueError("Require c0 > 0 and cT >= 0.")
+
+    deviation = (
+        results.hourly["load"] - data.reference_load
+    ).abs().to_numpy()
+
+    # Zero padding gives both boundary hours two individual-square terms.
+    pairs = deviation[0] ** 2 + deviation[-1] ** 2
+    pairs += ((deviation[:-1] + deviation[1:]) ** 2).sum()
+
+    return float(c0 * (deviation ** 2).sum() + cT * pairs)
+
+
+def compare_q2_disutility_models(
+    runs: dict[str, tuple[InputData, Results]],
+    c0: float,
+    cT: float,
+) -> list[dict]:
+    """Compare solved Q2 models using the existing sensitivity metrics.
+
+    Each run maps a model label to its input data and Results. Costs and
+    surplus are in DKK/day; load and deviations are in kWh/day, except
+    maximum_deviation, which is the largest one-hour deviation in kWh.
+    """
+
+    metrics = []
+
+    for label, (data, result) in runs.items():
+        if data.reference_load is None:
+            raise ValueError("Q2 comparison requires a reference load.")
+
+        if label == "Linear":
+            values = analyze_linear_sensitivity(
+                data, [(data.linear_disutility, result)]
+            )[0]
+
+        elif label == "Quadratic":
+            values = analyze_quadratic_sensitivity(
+                data, [(data.quadratic_disutility, result)]
+            )[0]
+
+        elif label == "Temporal":
+            deviation = result.hourly["load"] - data.reference_load
+            values = {
+                "daily_load": result.hourly["load"].sum(),
+                "absolute_deviation": deviation.abs().sum(),
+                "procurement_cost": calculate_procurement_cost(data, result),
+                "disutility": calculate_temporal_disutility(data, result, c0, cT),
+            }
+
+        else:
+            raise ValueError(f"Unknown Q2 model label: {label}")
+
+        # Verify the objective using physical procurement and actual deviations.
+        reconstructed = values["procurement_cost"] + values["disutility"]
+        tolerance = 1e-5 + 1e-6 * abs(result.objective)
+        if abs(reconstructed - result.objective) > tolerance:
+            raise ValueError(f"{label} objective does not match its cost components.")
+
+        deviation = result.hourly["load"] - data.reference_load
+
+        metrics.append({
+            "model": label,
+            "daily_load": float(values["daily_load"]),
+            "absolute_deviation": float(values["absolute_deviation"]),
+            "procurement_cost": float(values["procurement_cost"]),
+            "disutility": float(values["disutility"]),
+            "objective": float(result.objective),
+            "surplus": float(-result.objective),
+            "maximum_deviation": float(deviation.abs().max()),
+            "import": float(result.hourly["import"].sum()),
+            "export": float(result.hourly["export"].sum()),
+            "pv": float(result.hourly["pv"].sum()),
+        })
+
+    return metrics

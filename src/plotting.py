@@ -3,6 +3,7 @@
 Every function returns the ``Figure`` and optionally saves it, so the same code works in a
 script (``python main.py``) and in a notebook (``plot_schedule(results, data);``).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,10 +16,13 @@ from .model import Results
 
 
 def _finish(fig: plt.Figure, save_to: Path | str | None) -> plt.Figure:
+    """Apply layout and save a figure, with a vector PDF beside PNG outputs."""
     fig.tight_layout()
     if save_to is not None:
         Path(save_to).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_to, dpi=150)
+        fig.savefig(save_to, dpi=200)
+        if Path(save_to).suffix.lower() == ".png":
+            fig.savefig(Path(save_to).with_suffix(".pdf"))
     return fig
 
 
@@ -28,40 +32,94 @@ def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figur
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 3.8))
 
     ax1.step(h, data.energy_price, where="mid", label="energy price", color="k")
-    ax1.step(h, data.energy_price + data.import_tariff, where="mid", ls="--", label="price + import tariff")
-    ax1.step(h, data.energy_price - data.export_tariff, where="mid", ls=":", label="price - export tariff")
+    ax1.step(
+        h,
+        data.energy_price + data.import_tariff,
+        where="mid",
+        ls="--",
+        label="price + import tariff",
+    )
+    ax1.step(
+        h,
+        data.energy_price - data.export_tariff,
+        where="mid",
+        ls=":",
+        label="price - export tariff",
+    )
     ax1.set(xlabel="hour", ylabel="DKK/kWh", title="Electricity prices")
     ax1.legend(fontsize=8)
 
-    ax2.fill_between(h, data.pv_available, step="mid", alpha=0.4, color="orange", label="PV available")
+    ax2.fill_between(
+        h,
+        data.pv_available,
+        step="mid",
+        alpha=0.4,
+        color="orange",
+        label="PV available",
+    )
     ax2.axhline(data.load_max_kWh, color="C3", ls="--", label="max load")
     if data.load_min_kWh > 0:
         ax2.axhline(data.load_min_kWh, color="C3", ls=":", label="min load")
     if data.reference_load is not None:
-        ax2.step(h, data.reference_load, where="mid", color="C0", label="reference load")
+        ax2.step(
+            h, data.reference_load, where="mid", color="C0", label="reference load"
+        )
     ax2.set(xlabel="hour", ylabel="kWh/h", title="PV and load preferences")
     ax2.legend(fontsize=8)
     fig.suptitle(f"Input data - {data.question}", fontsize=11)
     return _finish(fig, save_to)
 
 
-def plot_schedule(results: Results, data: InputData, save_to: Path | str | None = None) -> plt.Figure:
+def plot_schedule(
+    results: Results, data: InputData, save_to: Path | str | None = None
+) -> plt.Figure:
     """Optimal schedule: load, PV used, import/export, with prices on a second axis."""
     hr = results.hourly
     h = hr.index.to_numpy()
-    fig, ax = plt.subplots(figsize=(11, 4.2))
+    battery = "battery_soc" in hr
+    if battery:
+        fig, axes = plt.subplots(
+            3, 1, figsize=(11, 8.5), sharex=True, height_ratios=[2, 1, 1]
+        )
+        ax = axes[0]
+    else:
+        fig, ax = plt.subplots(figsize=(11, 4.2))
 
     width = 0.8
     if "load" in hr:
         ax.bar(h, hr["load"], width, color="C0", alpha=0.7, label="load")
     if "pv" in hr:
-        ax.bar(h, -hr["pv"], width, color="orange", alpha=0.7, label="PV used (negative = generation)")
+        ax.bar(
+            h,
+            -hr["pv"],
+            width,
+            color="orange",
+            alpha=0.7,
+            label="PV used (negative = generation)",
+        )
     if "pv_available" in hr and "pv" in hr:
-        ax.step(h, -hr["pv_available"], where="mid", color="orange", ls="--", lw=1, label="PV available")
+        ax.step(
+            h,
+            -hr["pv_available"],
+            where="mid",
+            color="orange",
+            ls="--",
+            lw=1,
+            label="PV available",
+        )
     if "import" in hr and "export" in hr:
-        ax.plot(h, hr["import"] - hr["export"], "k.-", label="net import (+) / export (-)")
+        ax.plot(
+            h, hr["import"] - hr["export"], "k.-", label="net import (+) / export (-)"
+        )
     if "reference_load" in hr:
-        ax.step(h, hr["reference_load"], where="mid", color="C0", ls=":", label="reference load")
+        ax.step(
+            h,
+            hr["reference_load"],
+            where="mid",
+            color="C0",
+            ls=":",
+            label="reference load",
+        )
     if "battery_soc" in hr:
 
         h_soc = np.arange(data.n_hours + 1)
@@ -71,7 +129,7 @@ def plot_schedule(results: Results, data: InputData, save_to: Path | str | None 
             results.meta["final_battery_soc"],
         )
 
-        ax.plot(
+        axes[2].plot(
             h_soc,
             soc,
             color="C2",
@@ -81,9 +139,21 @@ def plot_schedule(results: Results, data: InputData, save_to: Path | str | None 
             label="battery SoC [kWh]",
         )
 
-        ax.set_xlim(-0.5, 24.5)
+        axes[2].set(
+            xlabel="hour boundary", ylabel="SoC [kWh]", xlim=(-0.5, data.n_hours + 0.5)
+        )
+        axes[2].legend(loc="upper right")
+        axes[1].step(h, hr.battery_charge, where="mid", label="charge (+)")
+        axes[1].step(h, -hr.battery_discharge, where="mid", label="discharge (-)")
+        axes[1].set_ylabel("Battery flow [kWh/h]")
+        axes[1].axhline(0, color="grey", lw=0.8)
+        axes[1].legend(loc="upper right")
     ax.axhline(0, color="grey", lw=0.8)
-    ax.set(xlabel="hour", ylabel="kWh/h", title=f"Optimal schedule - {results.question} (objective {results.objective:.1f} DKK)")
+    ax.set(
+        xlabel="hour",
+        ylabel="kWh/h",
+        title=f"Optimal schedule - {results.question} (objective {results.objective:.1f} DKK)",
+    )
 
     ax2 = ax.twinx()
     ax2.step(h, hr["price"], where="mid", color="C3", lw=1.2, label="energy price")
@@ -91,11 +161,31 @@ def plot_schedule(results: Results, data: InputData, save_to: Path | str | None 
 
     lines, labels = ax.get_legend_handles_labels()
     l2, lb2 = ax2.get_legend_handles_labels()
-    ax.legend(lines + l2, labels + lb2, fontsize=8, ncol=3, loc="upper center", bbox_to_anchor=(0.5, -0.18))
+    if battery:
+        ax.legend(
+            lines + l2,
+            labels + lb2,
+            fontsize=8,
+            ncol=3,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.15),
+        )
+        ax.set_title(ax.get_title(), pad=45)
+    else:
+        ax.legend(
+            lines + l2,
+            labels + lb2,
+            fontsize=8,
+            ncol=3,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.18),
+        )
     return _finish(fig, save_to)
 
 
-def plot_duals(results: Results, data: InputData, save_to: Path | str | None = None) -> plt.Figure:
+def plot_duals(
+    results: Results, data: InputData, save_to: Path | str | None = None
+) -> plt.Figure:
     """Hourly dual variables (all ``dual_*`` columns) against the price signals."""
     hr = results.hourly
     dual_cols = [c for c in hr.columns if c.startswith("dual_")]
@@ -103,18 +193,39 @@ def plot_duals(results: Results, data: InputData, save_to: Path | str | None = N
     h = hr.index.to_numpy()
     for c in dual_cols:
         ax.step(h, hr[c], where="mid", label=c.removeprefix("dual_"))
-    ax.step(h, data.energy_price + data.import_tariff, where="mid", color="grey", ls="--", lw=1, label="price + import tariff")
-    ax.step(h, data.energy_price - data.export_tariff, where="mid", color="grey", ls=":", lw=1, label="price - export tariff")
-    ax.set(xlabel="hour", ylabel="DKK/kWh", title=f"Dual variables - {results.question}")
+    ax.step(
+        h,
+        data.energy_price + data.import_tariff,
+        where="mid",
+        color="grey",
+        ls="--",
+        lw=1,
+        label="price + import tariff",
+    )
+    ax.step(
+        h,
+        data.energy_price - data.export_tariff,
+        where="mid",
+        color="grey",
+        ls=":",
+        lw=1,
+        label="price - export tariff",
+    )
+    ax.set(
+        xlabel="hour", ylabel="DKK/kWh", title=f"Dual variables - {results.question}"
+    )
     ax.legend(fontsize=8, ncol=3)
     return _finish(fig, save_to)
 
 
 def plot_scenario_comparison(
-    runs: dict[str, Results], metric: str = "objective", save_to: Path | str | None = None
+    runs: dict[str, Results],
+    metric: str = "objective",
+    save_to: Path | str | None = None,
 ) -> plt.Figure:
     """Bar chart of one metric across scenarios. ``metric`` is ``"objective"`` or the name of an
-    hourly column whose daily sum is compared (e.g. ``"import"``, ``"export"``, ``"load"``)."""
+    hourly column whose daily sum is compared (e.g. ``"import"``, ``"export"``, ``"load"``).
+    """
     names = list(runs)
     if metric == "objective":
         values = [r.objective for r in runs.values()]
@@ -127,6 +238,7 @@ def plot_scenario_comparison(
     ax.set(ylabel=ylabel, title=f"Scenario comparison - {metric}")
     ax.tick_params(axis="x", rotation=20)
     return _finish(fig, save_to)
+
 
 def plot_linear_disutility_sensitivity(
     results: list[tuple[float, Results]],
@@ -176,6 +288,7 @@ def plot_linear_disutility_sensitivity(
 
     return _finish(fig, save_to)
 
+
 def plot_quadratic_disutility_sensitivity(
     results,
     data,
@@ -186,8 +299,7 @@ def plot_quadratic_disutility_sensitivity(
     cQ_values = [cQ for cQ, _ in results]
 
     deviations = [
-        abs(result.hourly["load"] - data.reference_load).sum()
-        for _, result in results
+        abs(result.hourly["load"] - data.reference_load).sum() for _, result in results
     ]
 
     fig, ax = plt.subplots(figsize=(7, 4))
@@ -202,6 +314,7 @@ def plot_quadratic_disutility_sensitivity(
     ax.set_xscale("log")
 
     return _finish(fig, save_to)
+
 
 def plot_q3_comparison(
     result_q2: Results,
@@ -311,11 +424,13 @@ def plot_q3_battery_comparison(
 
     return _finish(fig, save_to)
 
+
 def plot_q3_energy_sensitivity(
     metrics: list[dict],
     data: InputData,
     save_to: Path | str | None = None,
-    *, unconstrained_energy: float,
+    *,
+    unconstrained_energy: float,
 ) -> plt.Figure:
     """Plot objective and dual value for different minimum daily energy requirements."""
 
@@ -349,9 +464,7 @@ def plot_q3_energy_sensitivity(
         label=r"dual $\mu$",
     )
 
-    ax2.set_ylabel(
-        r"Dual value $\mu$ [DKK/kWh]"
-    )
+    ax2.set_ylabel(r"Dual value $\mu$ [DKK/kWh]")
     ax2.set_ylim(bottom=0)
 
     ax2.axhline(
@@ -371,7 +484,8 @@ def plot_q3_energy_sensitivity(
 
     ax1.axvline(
         unconstrained_energy,
-        ls=":", color="grey",
+        ls=":",
+        color="grey",
         label=f"unconstrained optimum = {unconstrained_energy:.3f} kWh",
     )
 
@@ -386,12 +500,14 @@ def plot_q3_energy_sensitivity(
 
     return _finish(fig, save_to)
 
+
 def plot_q3_energy_supply_sensitivity(
     metrics: list[dict],
     data: InputData,
     pv_saturation_Emin: float | None = None,
     save_to: Path | str | None = None,
-    *, unconstrained_energy: float,
+    *,
+    unconstrained_energy: float,
 ) -> plt.Figure:
     """Plot PV use and grid import for different minimum daily energy requirements."""
 
@@ -430,7 +546,8 @@ def plot_q3_energy_supply_sensitivity(
 
     ax.axvline(
         unconstrained_energy,
-        ls=":", color="grey",
+        ls=":",
+        color="grey",
         label=f"unconstrained optimum = {unconstrained_energy:.3f} kWh",
     )
 
@@ -445,6 +562,7 @@ def plot_q3_energy_supply_sensitivity(
     ax.legend()
 
     return _finish(fig, save_to)
+
 
 def plot_q3_cq_sensitivity(
     metrics: list[dict],
@@ -483,9 +601,7 @@ def plot_q3_cq_sensitivity(
         label="procurement cost",
     )
 
-    ax2.set_ylabel(
-        "Procurement cost [DKK]"
-    )
+    ax2.set_ylabel("Procurement cost [DKK]")
 
     ax1.axvline(
         1.0,
@@ -493,9 +609,6 @@ def plot_q3_cq_sensitivity(
         color="grey",
         label=r"base case $c^Q=1$",
     )
-
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
 
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -518,6 +631,7 @@ def plot_battery_value_sensitivity(
     base_x=None,
     save_to=None,
 ):
+    """Plot battery value in DKK/day against one declared scenario parameter."""
     x = [r[x_key] for r in results]
     y = [r["battery_value"] for r in results]
 
@@ -539,7 +653,7 @@ def plot_battery_value_sensitivity(
             zorder=3,
             label="Base case",
         )
-        
+
     ax.set(
         xlabel=xlabel,
         ylabel="Battery value [DKK/day]",
@@ -561,9 +675,17 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
     axes[0].plot(hours, data.reference_load, "k--", linewidth=2, label="Reference")
     for label, result in runs.items():
         load = result.hourly["load"].to_numpy()
-        axes[0].plot(hours, load, marker="o", markersize=3, color=colors[label], label=label)
-        axes[1].plot(hours, abs(load - data.reference_load), marker="o", markersize=3,
-                     color=colors[label], label=label)
+        axes[0].plot(
+            hours, load, marker="o", markersize=3, color=colors[label], label=label
+        )
+        axes[1].plot(
+            hours,
+            abs(load - data.reference_load),
+            marker="o",
+            markersize=3,
+            color=colors[label],
+            label=label,
+        )
     axes[0].set_title(title or "Q2 base case: comparison of disutility models")
     axes[0].set_ylabel("Hourly consumption [kWh]")
     axes[0].legend()
@@ -578,9 +700,15 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
 def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None):
     """Compare hourly prices and Q2 loads for controlled price-order experiments."""
     hours = range(len(reference))
-    fig, axes = plt.subplots(2, len(profiles), figsize=(13, 7), sharex=True,
-                             sharey="row", squeeze=False,
-                             gridspec_kw={"height_ratios": [1, 2]})
+    fig, axes = plt.subplots(
+        2,
+        len(profiles),
+        figsize=(13, 7),
+        sharex=True,
+        sharey="row",
+        squeeze=False,
+        gridspec_kw={"height_ratios": [1, 2]},
+    )
     colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
     for col, (profile, prices) in enumerate(profiles.items()):
         axes[0, col].step(hours, prices, where="mid", color="black")
@@ -589,8 +717,14 @@ def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None)
         ax = axes[1, col]
         ax.plot(hours, reference, "k--", label="Reference")
         for label, result in runs[profile].items():
-            ax.plot(hours, result.hourly["load"], marker="o", markersize=3,
-                    color=colors[label], label=label)
+            ax.plot(
+                hours,
+                result.hourly["load"],
+                marker="o",
+                markersize=3,
+                color=colors[label],
+                label=label,
+            )
         ax.set_xlabel("Hour")
         ax.set_ylabel("Hourly consumption [kWh]")
         ax.set_xticks(list(hours)[::2])

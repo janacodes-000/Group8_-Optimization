@@ -122,6 +122,12 @@ with different units or assert equal comfort valuation. At the linear tie
 The comparison CSV and per-scenario schedules/figures are in
 `results/Q2_comparison/`; all physical inputs are held equal across models.
 
+Q3 energy-sweep threshold annotations use the solved unconstrained quadratic
+daily load, rather than a hardcoded value or the first positive sampled dual.
+`energy_active` uses primal slack (`1e-6 kWh` tolerance); `energy_binding` also
+requires a positive dual above `1e-6 DKK/kWh`. The threshold sweep tightens
+Gurobi's `BarConvTol` to `1e-12` to resolve small slacks and marginal values.
+
 ```python
 from src.data_loader import load_question
 from src.model import FlexibleConsumerModel

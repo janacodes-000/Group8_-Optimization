@@ -428,11 +428,15 @@ def run_q3_energy_sweep(out: Path):
     """Run Q3 for different minimum daily energy requirements."""
 
     data = load_question("Q3")
+    unconstrained_model = QuadraticDisutilityModel(data).build()
+    unconstrained_model.m.Params.BarConvTol = 1e-12
+    unconstrained_energy = float(unconstrained_model.solve().hourly["load"].sum())
 
     Emin_values = [
         15.0,
         20.0,
         22.0,
+        22.76,
         22.77,
         25.0,
         30.0,
@@ -456,10 +460,10 @@ def run_q3_energy_sweep(out: Path):
             min_daily_energy_kWh=Emin,
         )
 
-        # Solve Q3 model
-        result = DailyEnergyModel(
-            scenario_data
-        ).build().solve()
+        # Resolve small energy slacks and duals near the activation threshold.
+        model = DailyEnergyModel(scenario_data).build()
+        model.m.Params.BarConvTol = 1e-12
+        result = model.solve()
 
         results.append((Emin, result))
 
@@ -504,6 +508,7 @@ def run_q3_energy_sweep(out: Path):
         metrics,
         data,
         save_to=out / "q3_energy_sensitivity.png",
+        unconstrained_energy=unconstrained_energy,
     )
 
     plot_q3_energy_supply_sensitivity(
@@ -511,6 +516,7 @@ def run_q3_energy_sweep(out: Path):
         data,
         pv_saturation_Emin=pv_saturation_Emin,
         save_to=out / "q3_energy_supply_sensitivity.png",
+        unconstrained_energy=unconstrained_energy,
     )
     return results
 

@@ -315,22 +315,13 @@ def plot_q3_energy_sensitivity(
     metrics: list[dict],
     data: InputData,
     save_to: Path | str | None = None,
+    *, unconstrained_energy: float,
 ) -> plt.Figure:
     """Plot objective and dual value for different minimum daily energy requirements."""
 
     Emin_values = [m["E_min"] for m in metrics]
     objectives = [m["objective"] for m in metrics]
     energy_duals = [m["energy_dual"] for m in metrics]
-
-    binding_Emin = next(
-        (
-            m["E_min"]
-            for m in metrics
-            if m["energy_dual"] is not None
-            and m["energy_dual"] > 1e-4
-        ),
-        None,
-    )
 
     fig, ax1 = plt.subplots(figsize=(8, 4.5))
 
@@ -361,7 +352,7 @@ def plot_q3_energy_sensitivity(
     ax2.set_ylabel(
         r"Dual value $\mu$ [DKK/kWh]"
     )
-    ax2.set_ylim(0, 5)
+    ax2.set_ylim(bottom=0)
 
     ax2.axhline(
         0,
@@ -378,13 +369,11 @@ def plot_q3_energy_sensitivity(
         label=f"reference-profile energy = {reference_energy:.2f} kWh",
     )
 
-    if binding_Emin is not None:
-        ax1.axvline(
-            binding_Emin,
-            ls=":",
-            color="grey",
-            label=f"constraint becomes binding ≈ {binding_Emin:.2f} kWh",
-        )
+    ax1.axvline(
+        unconstrained_energy,
+        ls=":", color="grey",
+        label=f"unconstrained optimum = {unconstrained_energy:.3f} kWh",
+    )
 
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -402,6 +391,7 @@ def plot_q3_energy_supply_sensitivity(
     data: InputData,
     pv_saturation_Emin: float | None = None,
     save_to: Path | str | None = None,
+    *, unconstrained_energy: float,
 ) -> plt.Figure:
     """Plot PV use and grid import for different minimum daily energy requirements."""
 
@@ -436,6 +426,12 @@ def plot_q3_energy_supply_sensitivity(
         xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
         ylabel="Daily energy [kWh]",
         title="Q3 energy supply sensitivity",
+    )
+
+    ax.axvline(
+        unconstrained_energy,
+        ls=":", color="grey",
+        label=f"unconstrained optimum = {unconstrained_energy:.3f} kWh",
     )
 
     if pv_saturation_Emin is not None:

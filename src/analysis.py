@@ -354,6 +354,10 @@ def analyze_q3_energy_sensitivity(
             "pv": pv_total,
             "above_reference_hours": above_reference_hours,
             "energy_dual": energy_dual,
+            "energy_slack": daily_load - Emin,
+            "energy_active": bool(abs(daily_load - Emin) <= 1e-6),
+            "energy_binding": bool(abs(daily_load - Emin) <= 1e-6
+                                   and energy_dual is not None and energy_dual > 1e-6),
         })
 
     return metrics

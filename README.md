@@ -108,6 +108,7 @@ python main.py --question Q2_quadratic
 python main.py --question Q3
 python main.py --question Q3_battery
 python main.py --q2-comparison                 # Q2(d): base + selected coefficient regimes
+python main.py --validate                      # analytical, physical and dual sanity checks
 python main.py --show                           # open the figures in a window
 ```
 
@@ -127,6 +128,17 @@ daily load, rather than a hardcoded value or the first positive sampled dual.
 `energy_active` uses primal slack (`1e-6 kWh` tolerance); `energy_binding` also
 requires a positive dual above `1e-6 DKK/kWh`. The threshold sweep tightens
 Gurobi's `BarConvTol` to `1e-12` to resolve small slacks and marginal values.
+
+Every model solve validates balance/bounds, reconstructed economic components,
+relevant dual identities and complementary slackness. Separable Q1/Q2 models
+are checked against economic breakpoints and quadratic stationary points;
+Q3 additionally uses a scalar daily-energy multiplier search. Linear ties are
+checked by optimal objective, allowing any optimal schedule. Battery checks
+include all 25 SoC states, cyclic closure and charge/discharge overlap. QP
+solves use `BarConvTol=1e-12`. `--validate` also checks regime extremes, a price
+permutation, the uncoupled temporal limit and a finite-difference Q3 dual.
+Its outputs are in `results/validation/`. Regression checks can be run with
+`python -m unittest discover -s tests`.
 
 ```python
 from src.data_loader import load_question

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from dataclasses import replace
+import json
 #from turtle import pd
 import pandas as pd
 import numpy as np
@@ -723,6 +725,70 @@ def run_scenarios(question: str, out: Path) -> dict[str, Results]:
     return runs
 
 
+def run_validation(out: Path):
+    """Validate base cases, regime extremes, ties, temporal controls and Q3 duals."""
+    out.mkdir(parents=True, exist_ok=True)
+    cases = [(q, load_question(q), cls, {}) for q, cls in [
+        ("Q1_caseA", FlexibleConsumerModel), ("Q1_caseB", FlexibleConsumerModel),
+        ("Q2_linear", LinearDisutilityModel), ("Q2_quadratic", QuadraticDisutilityModel),
+        ("Q3", DailyEnergyModel), ("Q3_battery", BatteryModel)]]
+    for c in [0.5, 1.41, 3.0]:
+        cases.append((f"linear_{c}", set_linear_disutility(load_question("Q2_linear"), c), LinearDisutilityModel, {}))
+    for c in [0.01, 20.0]:
+        cases.append((f"quadratic_{c}", set_quadratic_disutility(load_question("Q2_quadratic"), c), QuadraticDisutilityModel, {}))
+    for energy in [20.0, 22.76, 22.77, 50.0]:
+        cases.append((f"energy_{energy}", set_load_preferences(load_question("Q3"), min_daily_energy_kWh=energy), DailyEnergyModel, {}))
+    for c in [0.01, 20.0]:
+        cases.append((f"daily_quadratic_{c}", set_quadratic_disutility(load_question("Q3"), c), DailyEnergyModel, {}))
+    for factor in [0.0, 2.0]:
+        cases.append((f"battery_spread_{factor}", scale_prices(load_question("Q3_battery"), factor, True), BatteryModel, {}))
+    for capacity in [1.0, 8.0]:
+        cases.append((f"battery_capacity_{capacity}", set_battery_capacity(load_question("Q3_battery"), capacity), BatteryModel, {}))
+    cases.append(("temporal_base", load_question("Q2_quadratic"), TemporalDisutilityModel, {}))
+    cases.append(("temporal_uncoupled", load_question("Q2_quadratic"), TemporalDisutilityModel, {"c0": 1.0, "cT": 0.0}))
+    d = load_question("Q1_caseA")
+    tied = scale_pv(replace(d, energy_price=np.full(d.n_hours, d.consumption_utility - d.import_tariff)), 0)
+    cases.append(("Q1_import_tie", tied, FlexibleConsumerModel, {}))
+    for label, lower, upper in [("PV_below_min", 2.0, 6.0), ("PV_above_max", 0.0, 1.0)]:
+        cases.append((label, set_load_preferences(d, load_min_kWh=lower, load_max_kWh=upper), FlexibleConsumerModel, {}))
+    profiles = {"alternating": np.tile([0.85, 2.5], 12), "clustered": np.repeat([0.85, 2.5], 12)}
+    for profile, prices in profiles.items():
+        for label, question, cls in [("linear", "Q2_linear", LinearDisutilityModel),
+                                     ("quadratic", "Q2_quadratic", QuadraticDisutilityModel),
+                                     ("temporal", "Q2_quadratic", TemporalDisutilityModel)]:
+            source = load_question(question)
+            cases.append((f"{profile}_{label}", set_q2_price_structure(source, prices, float(source.reference_load.mean())), cls, {}))
+    d = load_question("Q3")
+    step = 1e-3
+    for label, change in [("dual_plus", step), ("dual_minus", -step)]:
+        cases.append((label, set_load_preferences(d, min_daily_energy_kWh=d.min_daily_energy_kWh + change), DailyEnergyModel, {}))
+    solved, rows = {}, []
+    for label, data, cls, kwargs in cases:
+        result = cls(data, **kwargs).build().solve()
+        result.save(out / label)
+        solved[label] = result
+        rows.append({"scenario": label, "objective": result.objective, **result.meta["validation"]})
+    finite_difference = (solved["dual_plus"].objective - solved["dual_minus"].objective) / (2 * step)
+    if not np.isclose(finite_difference, solved["Q3"].duals["min_daily_energy"], atol=1e-4, rtol=0):
+        raise ValueError("Daily-energy dual does not match objective sensitivity.")
+    for label in ["linear", "quadratic"]:
+        a, b = solved[f"alternating_{label}"], solved[f"clustered_{label}"]
+        if not np.isclose(a.objective, b.objective, atol=1e-5, rtol=0) or not np.isclose(
+            abs(a.hourly.load - a.hourly.reference_load).sum(),
+            abs(b.hourly.load - b.hourly.reference_load).sum(), atol=1e-5, rtol=0):
+            raise ValueError("Separable models changed under a controlled price permutation.")
+    if not np.isclose(solved["temporal_uncoupled"].objective, solved["Q2_quadratic"].objective, atol=1e-5, rtol=0):
+        raise ValueError("Uncoupled temporal model does not recover quadratic disutility.")
+    if not any(row["nonunique_load"] for row in solved["Q1_import_tie"].meta["analytical_hourly"]):
+        raise ValueError("Analytical validator failed to identify the import-price tie.")
+    table = pd.DataFrame(rows)
+    table.to_csv(out / "validation.csv", index=False)
+    (out / "checks.json").write_text(json.dumps({"solves": len(cases), "energy_dual_finite_difference": finite_difference,
+                                               "price_permutation": "passed", "uncoupled_temporal": "passed", "linear_tie": "passed"}, indent=2) + "\n")
+    print(f"Validation passed for {len(cases)} solves; analytical, physical and dual checks passed.")
+    return table
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--question", default="Q1_caseA", choices=list_questions(), help="data case to use")
@@ -730,8 +796,13 @@ def main() -> None:
     parser.add_argument("--show", action="store_true", help="open the figures in a window")
     parser.add_argument("--q2-bonus", action="store_true", help="run Q2(e) base and price-structure comparisons")
     parser.add_argument("--q2-comparison", action="store_true", help="run Q2(d) selected coefficient-sweep comparisons")
+    parser.add_argument("--validate", action="store_true", help="run analytical, physical and sensitivity sanity checks")
     args = parser.parse_args()
 
+
+    if args.validate:
+        run_validation(RESULTS_DIR / "validation")
+        return
 
     if args.q2_comparison:
         if not args.show:

@@ -87,6 +87,7 @@ class FlexibleConsumerModel:
         self.m = gp.Model(name)
         self.m.Params.OutputFlag = 1 if verbose else 0
         self.m.Params.QCPDual = 1          # only relevant if you add a quadratic constraint (none is needed in Assignment 1)
+        self.m.Params.BarConvTol = 1e-12   # resolve small QP slacks and marginal values
         self.var: dict[str, gp.tupledict | gp.Var] = {}   # decision variables by name
         self.con: dict[str, gp.tupledict | gp.Constr] = {}  # constraints by name (duals read from here)
 
@@ -224,10 +225,9 @@ class FlexibleConsumerModel:
         if m.Status != GRB.OPTIMAL:
             raise RuntimeError(f"Optimisation ended with status {status}. Check the model (m.computeIIS() helps for infeasibility).")
         results = self._extract_results(status)
-        if self.data.consumption_utility is not None:
-            # Local import keeps analysis independent of model construction.
-            from .analysis import calculate_q1_components
-            results.metrics.update(calculate_q1_components(self.data, results))
+        from .analysis import calculate_cost_components, validate_solution
+        results.metrics.update(calculate_cost_components(self.data, results))
+        results.meta["validation"] = validate_solution(self.data, results)
         return results
 
     # --------------------------------------------------------------- extraction
@@ -254,8 +254,8 @@ class FlexibleConsumerModel:
                 else:
                     duals[name] = _dual(c)
             except (AttributeError, gp.GurobiError):
-                # No duals available (e.g. model with integer variables)
-                pass
+                if not self.m.IsMIP:
+                    raise RuntimeError(f"Required continuous-model dual is unavailable: {name}")
         # Store final battery SoC separately because it has n_hours + 1 states
         final_battery_soc = None
 
@@ -269,7 +269,14 @@ class FlexibleConsumerModel:
             hourly=hourly,
             duals=duals,
             meta={"scalar_variables": scalars,
-                 "final_battery_soc": final_battery_soc,},
+                 "final_battery_soc": final_battery_soc,
+                 "preference": ("temporal" if isinstance(self, TemporalDisutilityModel)
+                                else "linear" if isinstance(self, LinearDisutilityModel)
+                                else "quadratic" if isinstance(self, QuadraticDisutilityModel)
+                                else "utility"),
+                 "daily_energy_enabled": isinstance(self, DailyEnergyModel),
+                 "battery_enabled": isinstance(self, BatteryModel),
+                 "c0": getattr(self, "c0", None), "cT": getattr(self, "cT", None)},
         )
 
 

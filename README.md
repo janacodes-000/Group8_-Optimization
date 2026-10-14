@@ -107,10 +107,21 @@ python main.py --question Q2_linear
 python main.py --question Q2_quadratic
 python main.py --question Q3
 python main.py --question Q3_battery
+python main.py --q2-comparison                 # Q2(d): base + selected coefficient regimes
 python main.py --show                           # open the figures in a window
 ```
 
 **Use it from a notebook or your own script** (run from the repository root):
+
+`--q2-comparison` runs the existing Q2 sweeps once and reuses their results for
+the base case and three selected scenarios: weak preferences `(cL=0.5, cQ=0.1)`,
+transition `(1.41, 0.5)`, and strong preferences `(2.5, 20)`.
+These pairings demonstrate regimes in each model; they do not equate coefficients
+with different units or assert equal comfort valuation. At the linear tie
+`cL=cPV=1.41`, a returned schedule is one possible optimal schedule.
+The comparison CSV and per-scenario schedules/figures are in
+`results/Q2_comparison/`; all physical inputs are held equal across models.
+
 ```python
 from src.data_loader import load_question
 from src.model import FlexibleConsumerModel

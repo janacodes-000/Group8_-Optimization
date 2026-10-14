@@ -557,7 +557,7 @@ def plot_battery_value_sensitivity(
     return _finish(fig, save_to)
 
 
-def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None):
+def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
     """Plot Q2 base schedules and absolute deviations, in kWh per hour."""
     fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
@@ -568,7 +568,7 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None):
         axes[0].plot(hours, load, marker="o", markersize=3, color=colors[label], label=label)
         axes[1].plot(hours, abs(load - data.reference_load), marker="o", markersize=3,
                      color=colors[label], label=label)
-    axes[0].set_title("Q2 base case: comparison of disutility models")
+    axes[0].set_title(title or "Q2 base case: comparison of disutility models")
     axes[0].set_ylabel("Hourly consumption [kWh]")
     axes[0].legend()
     axes[1].set_ylabel("Absolute deviation [kWh]")

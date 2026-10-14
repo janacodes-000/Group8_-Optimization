@@ -207,6 +207,52 @@ def _run_q2_disutility_comparison(
     return {label: result for label, (_, result) in runs.items()}, metrics
 
 
+def run_q2_model_comparison(out: Path):
+    """Q2(d): reuse coefficient sweeps for base and three selected regimes.
+
+    Coefficients are selected separately for their respective units. Equal
+    scenario labels describe response regimes, not equal comfort preferences.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    data_linear = load_question("Q2_linear")
+    data_quadratic = load_question("Q2_quadratic")
+    for field in ["energy_price", "reference_load", "pv_available", "pv_marginal_cost",
+                  "load_min_kWh", "load_max_kWh", "import_tariff", "export_tariff"]:
+        if not np.allclose(getattr(data_linear, field), getattr(data_quadratic, field)):
+            raise ValueError(f"Q2 comparison physical inputs differ: {field}")
+    for folder in [out / "linear_sweep", out / "quadratic_sweep"]:
+        folder.mkdir(parents=True, exist_ok=True)
+    linear = dict(run_linear_disutility_sweep(out / "linear_sweep"))
+    quadratic = dict(run_quadratic_disutility_sweep(out / "quadratic_sweep"))
+    selections = {
+        "Base": (data_linear.linear_disutility, data_quadratic.quadratic_disutility),
+        "Weak preferences": (0.5, 0.1),
+        "Transition": (1.41, 0.5),
+        "Strong preferences": (2.5, 20.0),
+    }
+    metrics = []
+    for scenario, (cL, cQ) in selections.items():
+        runs = {
+            "Linear": (set_linear_disutility(data_linear, cL), linear[cL]),
+            "Quadratic": (set_quadratic_disutility(data_quadratic, cQ), quadratic[cQ]),
+        }
+        folder = out / scenario.lower().replace(" ", "_")
+        for label, (_, result) in runs.items():
+            result.save(folder, tag=label.lower())
+        for row in compare_q2_disutility_models(runs, c0=0.5, cT=0.25):
+            metrics.append({"scenario": scenario, "cL": cL, "cQ": cQ, **row})
+        plot_q2_bonus_base(
+            {label: result for label, (_, result) in runs.items()}, data_quadratic,
+            save_to=folder / "comparison.png",
+            title=f"Q2(d): {scenario} — cL={cL:g} DKK/kWh, cQ={cQ:g} DKK/kWh²",
+        )
+    table = pd.DataFrame(metrics)
+    table.to_csv(out / "comparison.csv", index=False)
+    print("\nQ2(d) selected coefficient-sweep comparison")
+    print(table.round(4).to_string(index=False))
+    return table
+
+
 def run_q2_bonus_base(out: Path):
     """Run Q2(e)'s supplied-data comparison against Q2(b) and Q2(c)."""
 
@@ -677,8 +723,19 @@ def main() -> None:
     parser.add_argument("--scenarios", action="store_true", help="also run the example sensitivity scenarios")
     parser.add_argument("--show", action="store_true", help="open the figures in a window")
     parser.add_argument("--q2-bonus", action="store_true", help="run Q2(e) base and price-structure comparisons")
+    parser.add_argument("--q2-comparison", action="store_true", help="run Q2(d) selected coefficient-sweep comparisons")
     args = parser.parse_args()
 
+
+    if args.q2_comparison:
+        if not args.show:
+            matplotlib.use("Agg")
+        out = RESULTS_DIR / "Q2_comparison"
+        run_q2_model_comparison(out)
+        if args.show:
+            matplotlib.pyplot.show()
+        print(f"\nOutputs written to {out}")
+        return
 
     if args.q2_bonus:
         if not args.show:

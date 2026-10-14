@@ -37,11 +37,24 @@ def count_deviation_bound_hours(
 ) -> dict[str, int]:
     """Count deviations limited by physical load bounds, using absolute kWh tolerance.
 
-    There is no additional hard deviation limit in the assignment data. The
-    signed deviation is bounded by load_min-reference and load_max-reference.
-    Count active endpoints once per hour, including zero-reference hours, and
-    separately report hours actually deviating and curtailed at the lower bound.
-    This does not count the absolute-value epigraph inequalities.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+    tolerance : float, optional
+        Absolute load-bound comparison tolerance, in kWh.
+
+    Returns
+    -------
+    dict[str, int]
+        Bound-active hours, distinguishing actual deviations and curtailment.
+
+    Notes
+    -----
+    Count physical load endpoints, not absolute-value auxiliary inequalities.
+    Zero-reference hours can be bound-active without being curtailed.
     """
     if data.reference_load is None:
         raise ValueError("Deviation-bound counts require a reference profile.")
@@ -66,8 +79,17 @@ def count_deviation_bound_hours(
 def calculate_q1_components(data: InputData, results: Results) -> dict[str, float]:
     """Return Q1 procurement, gross utility and surplus in DKK/day.
 
-    The solver minimizes procurement minus utility; surplus has the opposite
-    sign. Reconstructing the objective catches cost/sign inconsistencies.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+
+    Returns
+    -------
+    dict[str, float]
+        Procurement, gross utility, surplus and objective, in DKK/day.
     """
     if data.consumption_utility is None:
         raise ValueError("Q1 components require a consumption utility.")
@@ -88,7 +110,17 @@ def calculate_q1_components(data: InputData, results: Results) -> dict[str, floa
 def calculate_procurement_cost(data: InputData, results: Results) -> float:
     """Return daily electricity procurement cost in DKK.
 
-    Includes PV production cost and grid import cost, minus grid export revenue.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+
+    Returns
+    -------
+    float
+        PV/import cost minus export revenue, in DKK/day.
     """
 
     return float(
@@ -104,7 +136,20 @@ def calculate_quadratic_disutility(
     data: InputData,
     results: Results,
 ) -> float:
-    """Return total daily quadratic load disutility in DKK."""
+    """Return quadratic discomfort from actual load-reference deviations, in DKK/day.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+
+    Returns
+    -------
+    float
+        Daily quadratic discomfort, in DKK.
+    """
 
     if data.reference_load is None:
         raise ValueError("Quadratic disutility requires a reference load.")
@@ -121,7 +166,20 @@ def analyze_linear_sensitivity(
     data: InputData,
     results: list[tuple[float, Results]],
 ) -> list[dict]:
-    """Calculate summary metrics for a linear-disutility sensitivity sweep."""
+    """Return one daily-metrics dictionary per (cL, Results) sweep entry.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : list[tuple[float, Results]]
+        Swept coefficient/energy values and their solved results.
+
+    Returns
+    -------
+    list[dict]
+        Daily costs, consumption, deviations and bound counts per run.
+    """
 
     metrics = []
 
@@ -160,7 +218,20 @@ def analyze_quadratic_sensitivity(
     data: InputData,
     results: list[tuple[float, Results]],
 ) -> list[dict]:
-    """Calculate summary metrics for a quadratic-disutility sensitivity sweep."""
+    """Return one daily-metrics dictionary per (cQ, Results) sweep entry.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : list[tuple[float, Results]]
+        Swept coefficient/energy values and their solved results.
+
+    Returns
+    -------
+    list[dict]
+        Daily costs, absolute/squared deviations and bound counts per run.
+    """
 
     metrics = []
 
@@ -207,8 +278,21 @@ def compare_q2_q3(
 ) -> dict[str, float | int | None]:
     """Compare Q2 quadratic with Q3 minimum daily energy requirement.
 
-    Returns the main numerical metrics used in the Question 3 base-case
-    comparison in the report.
+    Parameters
+    ----------
+    data_q2 : InputData
+        Inputs for the unconstrained quadratic consumer.
+    result_q2 : Results
+        Solved unconstrained quadratic case.
+    data_q3 : InputData
+        Inputs for the consumer with a daily-energy requirement.
+    result_q3 : Results
+        Solved daily-energy case without storage.
+
+    Returns
+    -------
+    dict
+        Paired consumption, cost, deviation and energy-dual metrics.
     """
 
     if data_q2.reference_load is None or data_q3.reference_load is None:
@@ -249,7 +333,24 @@ def compare_q2_q3(
 
 
 def compare_q3_battery(data_q3, result_q3, data_bat, result_bat):
-    """Compare Q3 without and with battery storage."""
+    """Return paired consumption, cost, flow and overlap metrics for Q3.
+
+    Parameters
+    ----------
+    data_q3 : InputData
+        Inputs for the consumer with a daily-energy requirement.
+    result_q3 : Results
+        Solved daily-energy case without storage.
+    data_bat : InputData
+        Inputs for the consumer with battery storage.
+    result_bat : Results
+        Solved daily-energy case with storage.
+
+    Returns
+    -------
+    dict
+        Paired metrics, battery value in DKK/day and overlap count.
+    """
 
     load_q3 = result_q3.hourly["load"]
     load_bat = result_bat.hourly["load"]
@@ -298,7 +399,20 @@ def analyze_q3_energy_sensitivity(
     data: InputData,
     results: list[tuple[float, Results]],
 ) -> list[dict]:
-    """Calculate summary metrics for the Q3 minimum-energy sensitivity."""
+    """Return daily metrics and constraint activity for (Emin, Results) pairs.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : list[tuple[float, Results]]
+        Swept coefficient/energy values and their solved results.
+
+    Returns
+    -------
+    list[dict]
+        Daily metrics, energy slack in kWh and dual in DKK/kWh.
+    """
 
     metrics = []
 
@@ -359,7 +473,20 @@ def analyze_q3_cq_sensitivity(
     data: InputData,
     results: list[tuple[float, Results]],
 ) -> list[dict]:
-    """Calculate summary metrics for the Q3 quadratic-disutility sensitivity."""
+    """Return daily cost, deviation and energy-dual metrics for Q3 coefficient runs.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : list[tuple[float, Results]]
+        Swept coefficient/energy values and their solved results.
+
+    Returns
+    -------
+    list[dict]
+        Daily cost, deviation and energy-dual metrics per run.
+    """
 
     metrics = []
 
@@ -409,8 +536,24 @@ def calculate_temporal_disutility(
     c0: float,
     cT: float,
 ) -> float:
-    """Return temporal disutility in DKK, with coefficients in DKK/kWh²."""
+    """Return zero-padded adjacent-hour discomfort from actual deviations, in DKK.
 
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+    c0 : float
+        Individual temporal-model penalty, in DKK/kWh²; must be positive.
+    cT : float
+        Adjacent-hour penalty, in DKK/kWh²; must be non-negative.
+
+    Returns
+    -------
+    float
+        Daily coupled discomfort, in DKK.
+    """
     if data.reference_load is None:
         raise ValueError("Temporal disutility requires a reference load.")
     if c0 <= 0 or cT < 0:
@@ -426,7 +569,20 @@ def calculate_temporal_disutility(
 
 
 def calculate_cost_components(data: InputData, results: Results) -> dict[str, float]:
-    """Reconstruct model economics from physical flows and actual deviations."""
+    """Return procurement, preference cost, surplus and objective in DKK/day.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+
+    Returns
+    -------
+    dict[str, float]
+        Procurement, preference cost, surplus and objective, in DKK/day.
+    """
     preference = results.meta["preference"]
     if preference == "utility":
         return calculate_q1_components(data, results)
@@ -455,11 +611,25 @@ def analytical_hourly_solution(
 ) -> list[dict]:
     """Solve separable hours by economic breakpoints, independently of Gurobi.
 
-    At fixed load, PV candidates are zero, available PV and load clipped to PV
-    availability. Linear objectives attain optima at load bounds/reference/PV
-    breakpoints; quadratic objectives also have stationary points obtained from
-    each possible procurement marginal cost. Return optimal load intervals for
-    linear ties. mu is the Q3 daily-energy multiplier in DKK/kWh.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    preference : str
+        Separable representation: utility, linear or quadratic.
+    mu : float, optional
+        Trial daily-energy multiplier, in DKK/kWh.
+
+    Returns
+    -------
+    list[dict]
+        Hourly optima, optimal load intervals and trial Lagrangian costs.
+
+    Notes
+    -----
+    Evaluate load bounds, reference/PV breakpoints and quadratic stationary
+    points independently of Gurobi. Costs include the trial credit -mu * load;
+    optimal intervals allow linear ties.
     """
     if preference not in {"utility", "linear", "quadratic"}:
         raise ValueError("Analytical hourly check requires separable preferences.")
@@ -520,15 +690,35 @@ def analytical_hourly_solution(
 def validate_solution(
     data: InputData, results: Results, tolerance: float = 1e-6
 ) -> dict:
-    """Check physics, economic reconstruction, duals and analytical optima.
+    """Validate physics, economics and optimality checks; return error diagnostics.
 
-    Uses absolute kWh feasibility tolerance, objective tolerance 1e-5 DKK plus
-    1e-6 relative, and dual/complementarity tolerance 1e-5. Optimal linear ties
-    are accepted without enforcing one solver-selected schedule. Battery overlap
-    is reported and rejected for these assignment experiments, without adding
-    integer variables or changing the convex model.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    results : Results
+        Solved primal, dual and economic results.
+    tolerance : float, optional
+        Absolute feasibility tolerance, in kWh.
+
+    Returns
+    -------
+    dict
+        Feasibility, objective, dual and analytical error diagnostics.
+
+    Raises
+    ------
+    ValueError
+        If a physical, economic or optimality check fails.
+
+    Notes
+    -----
+    Objective tolerance is 1e-5 DKK plus 1e-6 relative; dual/complementarity
+    checks use 1e-5. Store analytical comparisons in Results.meta when available.
+    Reject battery overlap for these assignment scenarios.
     """
     h = results.hourly
+    # Physics: check flows, limits and every storage boundary before economics.
     flows = h[["import", "export", "pv", "load"]].to_numpy()
     if not np.isfinite(flows).all():
         raise ValueError("Solution contains non-finite physical flows.")
@@ -578,6 +768,7 @@ def validate_solution(
     feasibility = max(errors)
     if feasibility > tolerance:
         raise ValueError(f"Physical feasibility error: {feasibility:g} kWh")
+    # Reconstruct costs from the physical decisions, not the solver expression.
     components = calculate_cost_components(data, results)
     preference_cost = (
         -components["utility"] if "utility" in components else components["disutility"]
@@ -605,6 +796,7 @@ def validate_solution(
             "Simultaneous import/export with a strictly positive tariff spread."
         )
 
+    # Gurobi duals are RHS sensitivities; inequality direction determines the sign.
     dual_errors, complementarity = [], []
     for name, slack, sign in [
         ("load_min", h.load - data.load_min_kWh, 1),
@@ -653,6 +845,7 @@ def validate_solution(
             results.meta["daily_energy_enabled"]
             and sum(row["load"] for row in oracle) < data.min_daily_energy_kWh
         ):
+            # Increasing mu rewards consumption until the daily minimum is met.
             low, high = 0.0, 1.0
             while (
                 sum(
@@ -669,6 +862,7 @@ def validate_solution(
                     low = mu
                 else:
                     high = mu
+        # Remove the trial multiplier credit to recover the original objective.
         oracle_objective = sum(row["objective"] + mu * row["load"] for row in oracle)
         oracle_error = abs(results.objective - oracle_objective)
         if oracle_error > objective_tolerance:
@@ -707,6 +901,7 @@ def validate_solution(
                     "Hourly PV production differs from the analytical procurement optimum."
                 )
             if preference == "utility":
+                # At degenerate optima, accept the full KKT-admissible dual interval.
                 dual_min, dual_max = float(sell), float(buy)
                 if h["import"].iloc[t] > tolerance:
                     dual_min = max(dual_min, float(buy))
@@ -752,9 +947,19 @@ def compare_q2_disutility_models(
 ) -> list[dict]:
     """Compare solved Q2 models using the existing sensitivity metrics.
 
-    Each run maps a model label to its input data and Results. Costs and
-    surplus are in DKK/day; load and deviations are in kWh/day, except
-    maximum_deviation, which is the largest one-hour deviation in kWh.
+    Parameters
+    ----------
+    runs : dict[str, tuple[InputData, Results]]
+        Model labels mapped to their inputs and solved results.
+    c0 : float
+        Individual temporal-model penalty, in DKK/kWh²; must be positive.
+    cT : float
+        Adjacent-hour penalty, in DKK/kWh²; must be non-negative.
+
+    Returns
+    -------
+    list[dict]
+        Daily metrics per model; costs are in DKK and energy in kWh.
     """
 
     metrics = []

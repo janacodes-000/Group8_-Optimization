@@ -16,7 +16,30 @@ from .data_loader import InputData, validate_input_data
 
 @dataclass
 class Results:
-    """Primal and dual solution of one model run."""
+    """Primal, dual and economic outputs from one solved consumer model.
+
+    Attributes
+    ----------
+    question : str
+        Input case identifier.
+    status : str
+        Solver termination status.
+    objective : float
+        Minimised daily net cost, in DKK.
+    hourly : pandas.DataFrame
+        Hourly decisions, prices and constraint duals.
+    duals : dict[str, float]
+        Duals of constraints with one value for the horizon.
+    metrics : dict[str, float]
+        Daily economic components, in DKK.
+    meta : dict
+        Scenario inputs, diagnostics and terminal battery state.
+
+    Methods
+    -------
+    save(folder, tag="")
+        Write hourly data, summaries and available comparison/state tables.
+    """
 
     question: str
     status: str
@@ -33,7 +56,15 @@ class Results:
     )  # daily economic components in DKK
 
     def save(self, folder: Path | str, tag: str = "") -> None:
-        """Write ``hourly`` to CSV and the scalar values to a small text file."""
+        """Save hourly data, summaries and available analytical or battery-state tables.
+
+        Parameters
+        ----------
+        folder : Path or str
+            Output directory, created if it does not exist.
+        tag : str, optional
+            Scenario identifier appended to saved filenames.
+        """
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         stem = f"{self.question}{'_' + tag if tag else ''}"
@@ -77,6 +108,13 @@ class Results:
             )
 
     def __str__(self) -> str:
+        """Return a compact status, objective and daily-flow summary.
+
+        Returns
+        -------
+        str
+            Status, objective and daily flow totals.
+        """
         cols = [c for c in self.hourly.columns if not c.startswith("dual_")]
         return (
             f"status: {self.status} | objective: {self.objective:.2f} DKK\n"
@@ -91,12 +129,39 @@ class Results:
 
 
 def _dual(c) -> float:
-    """Dual value of a linear (``Pi``) or quadratic (``QCPi``, requires QCPDual=1) constraint."""
+    """Dual value of a linear (``Pi``) or quadratic (``QCPi``, requires QCPDual=1) constraint.
+
+    Parameters
+    ----------
+    c : gurobipy.Constr or gurobipy.QConstr
+        Constraint with a solver-available Pi or QCPi value.
+
+    Returns
+    -------
+    float
+        Constraint sensitivity to its right-hand side.
+    """
     return c.QCPi if isinstance(c, gp.QConstr) else c.Pi
 
 
 def _json_value(value):
-    """Serialize NumPy values and paths without rounding report parameters."""
+    """Serialize NumPy values and paths without rounding report parameters.
+
+    Parameters
+    ----------
+    value : object
+        NumPy value or Path requiring JSON-compatible conversion.
+
+    Returns
+    -------
+    object
+        JSON-compatible representation of the value.
+
+    Raises
+    ------
+    TypeError
+        If the value has no supported JSON conversion.
+    """
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, np.generic):
@@ -107,11 +172,29 @@ def _json_value(value):
 
 
 class FlexibleConsumerModel:
-    """One parameterized continuous LP/QP for every assignment question.
+    """Shared continuous LP/QP for the assignment consumer models.
 
-    Preference selects utility, linear, quadratic or temporal discomfort.
-    Daily-energy and cyclic-battery constraints are independent options. Public
-    question classes below only configure this builder; all algebra is shared.
+    Attributes
+    ----------
+    data : InputData
+        Validated physical and economic inputs.
+    preference : str
+        Utility, linear, quadratic or temporal representation.
+    daily_energy, battery : bool
+        Flags enabling the coupled daily/storage constraints.
+    m : gurobipy.Model
+        Solver model, populated by build().
+    var : dict
+        Decision variables grouped by descriptive name.
+    con : dict
+        Explicit constraint families used for dual extraction.
+
+    Methods
+    -------
+    build()
+        Create the configured variables, objective and constraints.
+    solve()
+        Optimise and return validated Results.
     """
 
     def __init__(
@@ -126,6 +209,31 @@ class FlexibleConsumerModel:
         c0: float = 0.5,
         cT: float = 0.25,
     ):
+        """Validate inputs and initialise the solver for the selected configuration.
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        name : str, optional
+            Name used in solver output and model identification.
+        verbose : bool, optional
+            Whether to print solver progress.
+        preference : str, optional
+            Utility, linear, quadratic or temporal preference representation.
+        daily_energy : bool, optional
+            Whether to impose the minimum daily consumption requirement.
+        battery : bool, optional
+            Whether to include cyclic battery storage.
+        c0 : float, optional
+            Individual temporal-model penalty, in DKK/kWh²; must be positive.
+        cT : float, optional
+            Adjacent-hour penalty, in DKK/kWh²; must be non-negative.
+
+        Notes
+        -----
+        Call build() to create the model equations before solve().
+        """
         self.data = data
         validate_input_data(data)
         self.preference = preference
@@ -146,7 +254,18 @@ class FlexibleConsumerModel:
         self.con: dict[str, gp.tupledict | gp.Constr] = {}
 
     def build(self) -> "FlexibleConsumerModel":
-        """Build shared physics, configured preferences and optional coupling."""
+        """Create the configured variables, constraints and objective, then return self.
+
+        Returns
+        -------
+        FlexibleConsumerModel
+            This instance, ready to solve.
+
+        Raises
+        ------
+        RuntimeError
+            If this instance has already been built.
+        """
         if self.var:
             raise RuntimeError(
                 "This model is already built; create a new instance for another run."
@@ -155,6 +274,7 @@ class FlexibleConsumerModel:
         if self.preference in {"linear", "temporal"}:
             self._build_absolute_deviations()
         if self.daily_energy:
+            # This single sum couples decisions across the hourly horizon.
             if self.data.min_daily_energy_kWh is None:
                 raise ValueError("Daily-energy model requires a minimum daily energy.")
             self.con["min_daily_energy"] = self.m.addConstr(
@@ -187,6 +307,7 @@ class FlexibleConsumerModel:
             ),
             name="balance",
         )
+        # Explicit constraints expose bound duals for the report.
         self.con["load_min"] = m.addConstrs(
             (self.var["load"][t] >= d.load_min_kWh for t in T), name="load_min"
         )
@@ -198,11 +319,12 @@ class FlexibleConsumerModel:
         )
 
     def _build_absolute_deviations(self):
-        """Shared epigraph of absolute load-reference deviation."""
+        """Represent absolute load deviations with two linear inequalities per hour."""
         d, m, T = self.data, self.m, self.T
         if d.reference_load is None:
             raise ValueError("Disutility requires a reference profile.")
         a = self.var["deviation"] = m.addVars(T, lb=0, name="deviation")
+        # Positive discomfort cost makes this epigraph tight at the optimum.
         load = self.var["load"]
         self.con["deviation_pos"] = m.addConstrs(
             (a[t] >= load[t] - d.reference_load[t] for t in T), name="deviation_pos"
@@ -212,7 +334,13 @@ class FlexibleConsumerModel:
         )
 
     def _procurement_expression(self):
-        """PV cost plus import cost minus export revenue, in DKK/day."""
+        """PV cost plus import cost minus export revenue, in DKK/day.
+
+        Returns
+        -------
+        gurobipy.LinExpr
+            Daily PV/import cost minus export revenue, in DKK.
+        """
         d = self.data
         return gp.quicksum(
             d.pv_marginal_cost * self.var["pv"][t]
@@ -222,7 +350,17 @@ class FlexibleConsumerModel:
         )
 
     def _preference_expression(self):
-        """Configured utility/disutility; temporal boundaries are zero-padded."""
+        """Return the configured preference cost, in DKK/day.
+
+        Returns
+        -------
+        gurobipy.LinExpr or gurobipy.QuadExpr
+            Daily utility or discomfort contribution, in DKK.
+
+        Notes
+        -----
+        Utility is negative in the minimised net-cost objective; discomfort is positive.
+        """
         d, T = self.data, self.T
         load = self.var["load"]
         if self.preference == "utility":
@@ -242,6 +380,7 @@ class FlexibleConsumerModel:
             if d.linear_disutility is None or d.linear_disutility <= 0:
                 raise ValueError("Linear disutility must be positive.")
             return d.linear_disutility * gp.quicksum(a[t] for t in T)
+        # Boundary terms give isolated deviations the same penalty in every hour.
         return self.c0 * gp.quicksum(a[t] ** 2 for t in T) + self.cT * (
             a[0] ** 2
             + gp.quicksum((a[t - 1] + a[t]) ** 2 for t in range(1, d.n_hours))
@@ -249,7 +388,7 @@ class FlexibleConsumerModel:
         )
 
     def _build_battery(self):
-        """Continuous battery with 25 states, losses, power limits and cyclic closure."""
+        """Add charge/discharge, boundary states, losses and cyclic closure."""
         d, m, T = self.data, self.m, self.T
         if d.battery_capacity_kWh is None:
             raise ValueError("Battery model requires battery parameters.")
@@ -275,12 +414,26 @@ class FlexibleConsumerModel:
             ),
             name="battery_soc_balance",
         )
+        # Cyclic closure prevents using the initial stored energy for free.
         self.con["battery_final_soc"] = m.addConstr(
             soc[d.n_hours] == soc[0], name="battery_final_soc"
         )
 
     def solve(self) -> Results:
-        """Optimize and return validated primal, dual and economic results."""
+        """Optimise and return primal, dual and validated economic Results.
+
+        Returns
+        -------
+        Results
+            Validated primal, dual and economic solution.
+
+        Raises
+        ------
+        RuntimeError
+            If the model is unbuilt or is not solved optimally.
+        ValueError
+            If solution validation fails.
+        """
         if not self.var:
             raise RuntimeError("Build the model before solving.")
         self.m.optimize()
@@ -290,6 +443,7 @@ class FlexibleConsumerModel:
                 f"Optimization ended with {status}; check feasibility (computeIIS can help)."
             )
         result = self._extract_results(status)
+        # Defer the import to avoid the model/analysis module dependency cycle.
         from .analysis import calculate_cost_components, validate_solution
 
         result.metrics.update(calculate_cost_components(self.data, result))
@@ -297,12 +451,24 @@ class FlexibleConsumerModel:
         return result
 
     def _extract_results(self, status: str) -> Results:
-        """Collect hourly variables/duals and full scenario metadata without rounding."""
+        """Collect hourly primal/dual values and scenario metadata into Results.
+
+        Parameters
+        ----------
+        status : str
+            Readable solver termination status.
+
+        Returns
+        -------
+        Results
+            Hourly outputs and full scenario metadata.
+        """
         d, T = self.data, list(self.T)
         hourly = pd.DataFrame(index=pd.Index(T, name="hour"))
         hourly["price"], hourly["pv_available"] = d.energy_price, d.pv_available
         if d.reference_load is not None:
             hourly["reference_load"] = d.reference_load
+        # Hourly rows hold starting SoC; the final boundary is stored in meta.
         for name, values in self.var.items():
             hourly[name] = [values[t].X for t in T]
         duals = {}
@@ -340,23 +506,58 @@ class FlexibleConsumerModel:
 
 
 class LinearDisutilityModel(FlexibleConsumerModel):
-    """Configure the shared builder for Q2(b)."""
+    """Configure Q2(b): linear absolute-deviation cost in DKK/kWh."""
 
     def __init__(self, data, name="linear_disutility", verbose=False):
+        """Select linear discomfort while retaining the shared physical model.
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        name : str, optional
+            Name used in solver output and model identification.
+        verbose : bool, optional
+            Whether to print solver progress.
+        """
         super().__init__(data, name=name, verbose=verbose, preference="linear")
 
 
 class QuadraticDisutilityModel(FlexibleConsumerModel):
-    """Configure the shared builder for Q2(c)."""
+    """Configure Q2(c): quadratic deviation cost in DKK/kWh²."""
 
     def __init__(self, data, name="quadratic_disutility", verbose=False):
+        """Select quadratic discomfort while retaining the shared physical model.
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        name : str, optional
+            Name used in solver output and model identification.
+        verbose : bool, optional
+            Whether to print solver progress.
+        """
         super().__init__(data, name=name, verbose=verbose, preference="quadratic")
 
 
 class TemporalDisutilityModel(FlexibleConsumerModel):
-    """Configure Q2(e), with c0/cT in DKK/kWh² and zero-padded boundaries."""
+    """Configure Q2(e): convex discomfort coupling adjacent absolute deviations."""
 
     def __init__(self, data, c0=0.5, cT=0.25, verbose=False):
+        """Set hourly and adjacent-hour penalties c0 and cT, in DKK/kWh².
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        c0 : float, optional
+            Individual temporal-model penalty, in DKK/kWh²; must be positive.
+        cT : float, optional
+            Adjacent-hour penalty, in DKK/kWh²; must be non-negative.
+        verbose : bool, optional
+            Whether to print solver progress.
+        """
         super().__init__(
             data,
             name="temporal_disutility",
@@ -368,18 +569,40 @@ class TemporalDisutilityModel(FlexibleConsumerModel):
 
 
 class DailyEnergyModel(FlexibleConsumerModel):
-    """Configure Q3: quadratic preference and minimum daily consumption."""
+    """Configure Q3: quadratic discomfort with a minimum daily energy requirement."""
 
     def __init__(self, data, name="daily_energy", verbose=False):
+        """Enable the daily-energy constraint on the quadratic consumer.
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        name : str, optional
+            Name used in solver output and model identification.
+        verbose : bool, optional
+            Whether to print solver progress.
+        """
         super().__init__(
             data, name=name, verbose=verbose, preference="quadratic", daily_energy=True
         )
 
 
 class BatteryModel(FlexibleConsumerModel):
-    """Configure Q3(g): quadratic preference, daily minimum and cyclic storage."""
+    """Configure Q3(g): quadratic discomfort, minimum daily energy and cyclic storage."""
 
     def __init__(self, data, name="battery", verbose=False):
+        """Enable battery dynamics and daily-energy constraints on the quadratic consumer.
+
+        Parameters
+        ----------
+        data : InputData
+            Physical inputs and consumer preferences.
+        name : str, optional
+            Name used in solver output and model identification.
+        verbose : bool, optional
+            Whether to print solver progress.
+        """
         super().__init__(
             data,
             name=name,
@@ -403,5 +626,16 @@ _STATUS = {
 
 
 def _status_name(code: int) -> str:
-    """Readable solver termination status."""
+    """Readable solver termination status.
+
+    Parameters
+    ----------
+    code : int
+        Gurobi solver termination code.
+
+    Returns
+    -------
+    str
+        Readable status name, or a fallback for an unknown code.
+    """
     return _STATUS.get(code, f"STATUS_{code}")

@@ -27,6 +27,21 @@ from __future__ import annotations
 from .data_loader import InputData
 from .model import Results
 
+def calculate_q1_components(data: InputData, results: Results) -> dict[str, float]:
+    """Return Q1 procurement, gross utility and surplus in DKK/day.
+
+    The solver minimizes procurement minus utility; surplus has the opposite
+    sign. Reconstructing the objective catches cost/sign inconsistencies.
+    """
+    if data.consumption_utility is None:
+        raise ValueError("Q1 components require a consumption utility.")
+    procurement = calculate_procurement_cost(data, results)
+    utility = float(data.consumption_utility * results.hourly["load"].sum())
+    if abs(procurement - utility - results.objective) > 1e-5 + 1e-6 * abs(results.objective):
+        raise ValueError("Q1 objective does not match procurement minus utility.")
+    return {"procurement_cost": procurement, "utility": utility,
+            "surplus": utility - procurement, "objective": float(results.objective)}
+
 def calculate_procurement_cost(data: InputData, results: Results) -> float:
     """Return daily electricity procurement cost in DKK.
 

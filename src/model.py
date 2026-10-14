@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import json
 
 import gurobipy as gp
 import numpy as np
@@ -43,6 +44,7 @@ class Results:
     hourly: pd.DataFrame                   # one row per hour: variables, prices, hourly duals
     duals: dict[str, float] = field(default_factory=dict)   # duals of non-hourly constraints
     meta: dict = field(default_factory=dict)                 # anything else worth keeping (scenario name, ...)
+    metrics: dict[str, float] = field(default_factory=dict)  # daily economic components in DKK
 
     def save(self, folder: Path | str, tag: str = "") -> None:
         """Write ``hourly`` to CSV and the scalar values to a small text file."""
@@ -54,6 +56,13 @@ class Results:
             f.write(f"status    : {self.status}\nobjective : {self.objective:.4f} DKK\n")
             for k, v in self.duals.items():
                 f.write(f"dual[{k}] : {v:.4f}\n")
+            for k, v in self.metrics.items():
+                f.write(f"{k} : {v:.6f} DKK\n")
+        (folder / f"{stem}_summary.json").write_text(
+            json.dumps({"status": self.status, "objective": self.objective,
+                        "metrics": self.metrics, "duals": self.duals}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     def __str__(self) -> str:
         cols = [c for c in self.hourly.columns if not c.startswith("dual_")]
@@ -214,7 +223,12 @@ class FlexibleConsumerModel:
         status = _status_name(m.Status)
         if m.Status != GRB.OPTIMAL:
             raise RuntimeError(f"Optimisation ended with status {status}. Check the model (m.computeIIS() helps for infeasibility).")
-        return self._extract_results(status)
+        results = self._extract_results(status)
+        if self.data.consumption_utility is not None:
+            # Local import keeps analysis independent of model construction.
+            from .analysis import calculate_q1_components
+            results.metrics.update(calculate_q1_components(self.data, results))
+        return results
 
     # --------------------------------------------------------------- extraction
     def _extract_results(self, status: str) -> Results:

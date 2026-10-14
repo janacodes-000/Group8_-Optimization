@@ -140,6 +140,15 @@ permutation, the uncoupled temporal limit and a finite-difference Q3 dual.
 Its outputs are in `results/validation/`. Regression checks can be run with
 `python -m unittest discover -s tests`.
 
+Every saved solution includes hourly CSV, TXT/JSON summary, the actual scenario
+parameters and validation diagnostics. Separable solutions also export an
+hourly analytical comparison (Q1 includes admissible balance-dual intervals).
+Battery solutions export a separate `*_battery_states.csv` with all 25 boundary
+states, including terminal SoC. Sweeps retain individual runs as well as aggregate
+tables. Q3/battery comparisons export `comparison.csv`; battery sensitivity
+tables include both paired objectives and overlap counts. Files under `results/`
+remain generated outputs and need not be committed.
+
 ```python
 from src.data_loader import load_question
 from src.model import FlexibleConsumerModel

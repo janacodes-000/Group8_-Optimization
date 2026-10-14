@@ -81,6 +81,7 @@ def run_linear_disutility_sweep(out: Path):
         result = LinearDisutilityModel(scenario_data).build().solve()
 
         results.append((cL, result))
+        result.save(out / "runs", tag=f"cL_{cL:g}")
 
     # Analyze all results
     metrics = analyze_linear_sensitivity(data, results)
@@ -142,6 +143,7 @@ def run_quadratic_disutility_sweep(out: Path):
         ).build().solve()
 
         results.append((cQ, result))
+        result.save(out / "runs", tag=f"cQ_{cQ:g}")
 
     # Analyze results
     metrics = analyze_quadratic_sensitivity(
@@ -377,6 +379,7 @@ def run_q3_comparison(out: Path):
         data_q3,
         result_q3,
     )
+    pd.DataFrame([metrics]).to_csv(comp_out / "comparison.csv", index=False)
 
     print("\nQ3 comparison")
     print(f"Q2 quadratic load      : {metrics['load_q2']:.2f} kWh")
@@ -413,6 +416,10 @@ def run_q3_battery_comparison(out: Path):
         data_bat,
         result_bat,
     )
+    comp_out = out / "battery_comparison"
+    result_q3.save(comp_out, tag="without_battery")
+    result_bat.save(comp_out, tag="with_battery")
+    pd.DataFrame([metrics]).to_csv(comp_out / "comparison.csv", index=False)
 
     plot_q3_battery_comparison(
         result_q3,
@@ -468,6 +475,7 @@ def run_q3_energy_sweep(out: Path):
         result = model.solve()
 
         results.append((Emin, result))
+        result.save(out / "energy_runs", tag=f"Emin_{Emin:g}")
 
     # Analyse all sensitivity runs
     metrics = analyze_q3_energy_sensitivity(
@@ -588,6 +596,7 @@ def run_q3_cq_sweep(out: Path):
         ).build().solve()
 
         results.append((cQ, result))
+        result.save(out / "cq_runs", tag=f"cQ_{cQ:g}")
 
     metrics = analyze_q3_cq_sensitivity(
         data,
@@ -641,9 +650,18 @@ def run_q3_battery_sensitivity(out: Path):
         result_no_bat = DailyEnergyModel(data_no_bat).build().solve()
         result_bat = BatteryModel(data_bat).build().solve()
 
+        folder = out / "price_runs" / f"spread_{factor:g}"
+        result_no_bat.save(folder, tag="without_battery")
+        result_bat.save(folder, tag="with_battery")
+
         price_results.append({
             "factor": factor,
+            "objective_without_battery": result_no_bat.objective,
+            "objective_with_battery": result_bat.objective,
             "battery_value": result_no_bat.objective - result_bat.objective,
+            "load_without_battery": float(result_no_bat.hourly.load.sum()),
+            "load_with_battery": float(result_bat.hourly.load.sum()),
+            "simultaneous_hours": result_bat.meta["validation"]["simultaneous_battery_hours"],
         })
 
     # ---------------------------------------------------------
@@ -654,14 +672,21 @@ def run_q3_battery_sensitivity(out: Path):
 
     # No-battery case is identical for all capacities
     result_no_bat = DailyEnergyModel(base_no_bat).build().solve()
+    result_no_bat.save(out / "capacity_runs", tag="without_battery")
 
     for capacity in capacities:
         data_bat = set_battery_capacity(base_bat, capacity)
         result_bat = BatteryModel(data_bat).build().solve()
+        result_bat.save(out / "capacity_runs" / f"capacity_{capacity:g}", tag="with_battery")
 
         capacity_results.append({
             "capacity": capacity,
+            "objective_without_battery": result_no_bat.objective,
+            "objective_with_battery": result_bat.objective,
             "battery_value": result_no_bat.objective - result_bat.objective,
+            "load_without_battery": float(result_no_bat.hourly.load.sum()),
+            "load_with_battery": float(result_bat.hourly.load.sum()),
+            "simultaneous_hours": result_bat.meta["validation"]["simultaneous_battery_hours"],
         })
 
     # Save results

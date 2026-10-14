@@ -60,9 +60,17 @@ class Results:
                 f.write(f"{k} : {v:.6f} DKK\n")
         (folder / f"{stem}_summary.json").write_text(
             json.dumps({"status": self.status, "objective": self.objective,
-                        "metrics": self.metrics, "duals": self.duals}, indent=2) + "\n",
+                        "metrics": self.metrics, "duals": self.duals,
+                        "meta": self.meta}, indent=2, default=_json_value) + "\n",
             encoding="utf-8",
         )
+        if "battery_soc" in self.hourly:
+            states = np.r_[self.hourly.battery_soc.to_numpy(), self.meta["final_battery_soc"]]
+            pd.DataFrame({"boundary_hour": np.arange(len(states)), "soc_kWh": states}).to_csv(
+                folder / f"{stem}_battery_states.csv", index=False,
+            )
+        if "analytical_hourly" in self.meta:
+            pd.DataFrame(self.meta["analytical_hourly"]).to_csv(folder / f"{stem}_analytical.csv", index=False)
 
     def __str__(self) -> str:
         cols = [c for c in self.hourly.columns if not c.startswith("dual_")]
@@ -76,6 +84,17 @@ class Results:
 def _dual(c) -> float:
     """Dual value of a linear (``Pi``) or quadratic (``QCPi``, requires QCPDual=1) constraint."""
     return c.QCPi if isinstance(c, gp.QConstr) else c.Pi
+
+
+def _json_value(value):
+    """Serialize NumPy values and paths without rounding report parameters."""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"Unsupported metadata type: {type(value).__name__}")
 
 
 class FlexibleConsumerModel:
@@ -276,6 +295,7 @@ class FlexibleConsumerModel:
                                 else "utility"),
                  "daily_energy_enabled": isinstance(self, DailyEnergyModel),
                  "battery_enabled": isinstance(self, BatteryModel),
+                 "parameters": {key: value for key, value in vars(d).items() if key != "raw"},
                  "c0": getattr(self, "c0", None), "cT": getattr(self, "cT", None)},
         )
 

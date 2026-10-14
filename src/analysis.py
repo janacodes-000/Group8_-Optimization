@@ -24,8 +24,38 @@ Example
 
 from __future__ import annotations
 
+import numpy as np
+
 from .data_loader import InputData
 from .model import Results
+
+def count_deviation_bound_hours(
+    data: InputData, results: Results, tolerance: float = 1e-6,
+) -> dict[str, int]:
+    """Count deviations limited by physical load bounds, using absolute kWh tolerance.
+
+    There is no additional hard deviation limit in the assignment data. The
+    signed deviation is bounded by load_min-reference and load_max-reference.
+    Count active endpoints once per hour, including zero-reference hours, and
+    separately report hours actually deviating and curtailed at the lower bound.
+    This does not count the absolute-value epigraph inequalities.
+    """
+    if data.reference_load is None:
+        raise ValueError("Deviation-bound counts require a reference profile.")
+    if not np.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("Tolerance must be finite and positive.")
+    load = results.hourly["load"].to_numpy()
+    lower = np.isclose(load, data.load_min_kWh, atol=tolerance, rtol=0)
+    upper = np.isclose(load, data.load_max_kWh, atol=tolerance, rtol=0)
+    at_bound = lower | upper
+    deviating = np.abs(load - data.reference_load) > tolerance
+    return {
+        "deviation_bound_hours": int(at_bound.sum()),
+        "lower_bound_hours": int(lower.sum()),
+        "upper_bound_hours": int(upper.sum()),
+        "deviating_bound_hours": int((at_bound & deviating).sum()),
+        "curtailed_bound_hours": int((lower & (load < data.reference_load - tolerance)).sum()),
+    }
 
 def calculate_q1_components(data: InputData, results: Results) -> dict[str, float]:
     """Return Q1 procurement, gross utility and surplus in DKK/day.
@@ -110,6 +140,7 @@ def analyze_linear_sensitivity(
             "absolute_deviation": absolute_deviation,
             "disutility": disutility,
             "procurement_cost": procurement_cost,
+            **count_deviation_bound_hours(data, result),
         })
 
     return metrics
@@ -149,6 +180,7 @@ def analyze_quadratic_sensitivity(
             "squared_deviation": squared_deviation,
             "disutility": disutility,
             "procurement_cost": procurement_cost,
+            **count_deviation_bound_hours(data, result),
         })
 
     return metrics
@@ -457,6 +489,7 @@ def compare_q2_disutility_models(
             "import": float(result.hourly["import"].sum()),
             "export": float(result.hourly["export"].sum()),
             "pv": float(result.hourly["pv"].sum()),
+            **count_deviation_bound_hours(data, result),
         })
 
     return metrics

@@ -89,6 +89,16 @@ surplus in `results.metrics`, in DKK. The minimized objective is procurement
 minus utility; surplus is its negative. Components are saved in the summary
 TXT and JSON files, and checked against the solver objective.
 
+The Q2 sweep tables interpret the requested **binding deviation bound** as the
+physical endpoints `load_min-reference <= load-reference <= load_max-reference`.
+No extra deviation constraint is introduced. `deviation_bound_hours` counts
+hours at either endpoint once, using `1e-6 kWh` absolute tolerance.
+`lower_bound_hours`, `upper_bound_hours`, `deviating_bound_hours` and
+`curtailed_bound_hours` separate actual bound-limited deviations from hours
+whose zero reference already equals the lower bound. The absolute-value
+auxiliary inequalities are not counted: at least one is always tight at an
+optimum with positive linear discomfort cost.
+
 **Run everything for one case**
 ```bash
 python main.py --question Q1_caseA              # base case

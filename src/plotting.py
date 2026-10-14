@@ -310,6 +310,7 @@ def plot_q3_battery_comparison(
     )
 
     return _finish(fig, save_to)
+
 def plot_q3_energy_sensitivity(
     metrics: list[dict],
     data: InputData,
@@ -360,7 +361,7 @@ def plot_q3_energy_sensitivity(
     ax2.set_ylabel(
         r"Dual value $\mu$ [DKK/kWh]"
     )
-    ax2.set_ylim(0, 3.6)
+    ax2.set_ylim(0, 5)
 
     ax2.axhline(
         0,
@@ -374,7 +375,7 @@ def plot_q3_energy_sensitivity(
         reference_energy,
         ls="--",
         color="grey",
-        label=f"reference load = {reference_energy:.2f} kWh",
+        label=f"reference-profile energy = {reference_energy:.2f} kWh",
     )
 
     if binding_Emin is not None:
@@ -382,7 +383,7 @@ def plot_q3_energy_sensitivity(
             binding_Emin,
             ls=":",
             color="grey",
-            label=f"binding point ≈ {binding_Emin:.2f} kWh",
+            label=f"constraint becomes binding ≈ {binding_Emin:.2f} kWh",
         )
 
     lines1, labels1 = ax1.get_legend_handles_labels()
@@ -399,6 +400,7 @@ def plot_q3_energy_sensitivity(
 def plot_q3_energy_supply_sensitivity(
     metrics: list[dict],
     data: InputData,
+    pv_saturation_Emin: float | None = None,
     save_to: Path | str | None = None,
 ) -> plt.Figure:
     """Plot PV use and grid import for different minimum daily energy requirements."""
@@ -430,26 +432,19 @@ def plot_q3_energy_supply_sensitivity(
         label=f"available PV = {data.pv_available.sum():.2f} kWh",
     )
 
-    binding_Emin = 22.77
-    ax.axvline(
-        binding_Emin,
-        ls=":",
-        color="grey",
-        label=f"unconstrained optimum = {binding_Emin:.2f} kWh",
-    )
-
-    ax.axvline(
-        data.reference_load.sum(),
-        ls="--",
-        color="grey",
-        label=f"reference load = {data.reference_load.sum():.2f} kWh",
-    )
-
     ax.set(
         xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
         ylabel="Daily energy [kWh]",
         title="Q3 energy supply sensitivity",
     )
+
+    if pv_saturation_Emin is not None:
+        ax.axvline(
+            pv_saturation_Emin,
+            ls="-.",
+            color="grey",
+            label=f"full PV use ≈ {pv_saturation_Emin:.2f} kWh",
+        )
 
     ax.legend()
 
@@ -506,10 +501,15 @@ def plot_q3_cq_sensitivity(
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
 
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+
     ax1.legend(
         lines1 + lines2,
         labels1 + labels2,
-        loc="best",
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
+        ncol=3,
     )
 
     return _finish(fig, save_to)

@@ -248,20 +248,7 @@ def run_q3_energy_sweep(out: Path):
         15.0,
         20.0,
         22.0,
-
-        # Fine resolution around unconstrained optimum
-        22.70,
-        22.72,
-        22.74,
-        22.76,
         22.77,
-        22.78,
-        22.80,
-        22.82,
-        22.85,
-        22.90,
-
-        23.0,
         25.0,
         30.0,
 
@@ -297,6 +284,15 @@ def run_q3_energy_sweep(out: Path):
         results,
     )
 
+    pv_saturation_Emin = find_pv_saturation_Emin(
+        data,
+    )
+
+    print(
+        f"\nFull PV utilization reached at approximately "
+        f"Emin={pv_saturation_Emin:.3f} kWh"
+    )
+
     # Save numerical results
     metrics_df = pd.DataFrame(metrics)
 
@@ -328,9 +324,43 @@ def run_q3_energy_sweep(out: Path):
     plot_q3_energy_supply_sensitivity(
         metrics,
         data,
+        pv_saturation_Emin=pv_saturation_Emin,
         save_to=out / "q3_energy_supply_sensitivity.png",
     )
     return results
+
+def find_pv_saturation_Emin(
+    data,
+    lower: float = 35.0,
+    upper: float = 40.0,
+    energy_tol: float = 1e-3,
+    pv_tol: float = 1e-5,
+) -> float:
+    """Find the minimum daily energy at which all available PV is used."""
+
+    max_pv = float(data.pv_available.sum())
+
+    while upper - lower > energy_tol:
+
+        Emin = 0.5 * (lower + upper)
+
+        scenario_data = set_load_preferences(
+            data,
+            min_daily_energy_kWh=Emin,
+        )
+
+        result = DailyEnergyModel(
+            scenario_data
+        ).build().solve()
+
+        pv_used = float(result.hourly["pv"].sum())
+
+        if max_pv - pv_used <= pv_tol:
+            upper = Emin
+        else:
+            lower = Emin
+
+    return upper
 
 def run_q3_cq_sweep(out: Path):
     """Run Q3 for different quadratic disutility coefficients."""
@@ -396,6 +426,8 @@ def run_q3_cq_sweep(out: Path):
     )
 
     return results
+
+
 
 def run_q3_battery_sensitivity(out: Path):
     """Sensitivity of battery value to price variation and capacity."""

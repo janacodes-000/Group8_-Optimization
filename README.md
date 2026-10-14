@@ -84,6 +84,11 @@ experiment in `main.py`.
 
 ## 3. How to use the code
 
+Q1 solutions return daily procurement cost, gross consumption utility and net
+surplus in `results.metrics`, in DKK. The minimized objective is procurement
+minus utility; surplus is its negative. Components are saved in the summary
+TXT and JSON files, and checked against the solver objective.
+
 **Run everything for one case**
 ```bash
 python main.py --question Q1_caseA              # base case

@@ -48,6 +48,8 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
         return None
 
     print(results, "\n")
+    if results.metrics:
+        print(pd.Series(results.metrics).to_string(), "\n")
     results.save(out)
     plot_schedule(results, data, save_to=out / "schedule.png")
     plot_duals(results, data, save_to=out / "duals.png")
@@ -631,7 +633,7 @@ def run_scenarios(question: str, out: Path) -> dict[str, Results]:
         results = FlexibleConsumerModel(data).build().solve()
         results.save(out, tag=name)
         runs[name] = results
-        print(f"{name:>14}: cost {results.objective:8.2f} DKK | import {results.hourly['import'].sum():5.1f} kWh"
+        print(f"{name:>14}: net cost {results.objective:8.2f} DKK | import {results.hourly['import'].sum():5.1f} kWh"
               f" | export {results.hourly['export'].sum():5.1f} kWh")
     plot_scenario_comparison(runs, "objective", save_to=out / "scenarios_cost.png")
     return runs

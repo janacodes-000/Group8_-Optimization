@@ -118,7 +118,7 @@ def plot_scenario_comparison(
     names = list(runs)
     if metric == "objective":
         values = [r.objective for r in runs.values()]
-        ylabel = "daily cost [DKK]"
+        ylabel = "daily net cost [DKK]"
     else:
         values = [r.hourly[metric].sum() for r in runs.values()]
         ylabel = f"daily {metric} [kWh]"

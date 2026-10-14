@@ -16,14 +16,14 @@ from .model import Results
 
 
 def _finish(fig: plt.Figure, save_to: Path | str | None) -> plt.Figure:
-    """Apply layout, optionally save PNG/PDF outputs and return the Figure.
+    """Apply layout, optionally save a PNG and return the Figure.
 
     Parameters
     ----------
     fig : matplotlib.figure.Figure
         Figure to arrange and optionally save.
     save_to : Path, str or None
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -32,10 +32,9 @@ def _finish(fig: plt.Figure, save_to: Path | str | None) -> plt.Figure:
     """
     fig.tight_layout()
     if save_to is not None:
-        Path(save_to).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_to, dpi=200)
-        if Path(save_to).suffix.lower() == ".png":
-            fig.savefig(Path(save_to).with_suffix(".pdf"))
+        png_path = Path(save_to).with_suffix(".png")
+        png_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(png_path, dpi=200)
     return fig
 
 
@@ -47,7 +46,7 @@ def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figur
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -72,7 +71,7 @@ def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figur
         ls=":",
         label="price - export tariff",
     )
-    ax1.set(xlabel="hour", ylabel="DKK/kWh", title="Electricity prices")
+    ax1.set(xlabel="hour", ylabel="DKK/kWh")
     ax1.legend(fontsize=8)
 
     ax2.fill_between(
@@ -90,9 +89,8 @@ def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figur
         ax2.step(
             h, data.reference_load, where="mid", color="C0", label="reference load"
         )
-    ax2.set(xlabel="hour", ylabel="kWh/h", title="PV and load preferences")
+    ax2.set(xlabel="hour", ylabel="kWh/h")
     ax2.legend(fontsize=8)
-    fig.suptitle(f"Input data - {data.question}", fontsize=11)
     return _finish(fig, save_to)
 
 
@@ -108,7 +106,7 @@ def plot_schedule(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -194,7 +192,6 @@ def plot_schedule(
     ax.set(
         xlabel="hour",
         ylabel="kWh/h",
-        title=f"Optimal schedule - {results.question} (objective {results.objective:.1f} DKK)",
     )
 
     ax2 = ax.twinx()
@@ -212,7 +209,6 @@ def plot_schedule(
             loc="upper center",
             bbox_to_anchor=(0.5, 1.15),
         )
-        ax.set_title(ax.get_title(), pad=45)
     else:
         ax.legend(
             lines + l2,
@@ -237,7 +233,7 @@ def plot_duals(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -268,9 +264,7 @@ def plot_duals(
         lw=1,
         label="price - export tariff",
     )
-    ax.set(
-        xlabel="hour", ylabel="DKK/kWh", title=f"Dual variables - {results.question}"
-    )
+    ax.set(xlabel="hour", ylabel="DKK/kWh")
     ax.legend(fontsize=8, ncol=3)
     return _finish(fig, save_to)
 
@@ -289,7 +283,7 @@ def plot_scenario_comparison(
     metric : str, optional
         "objective", or an hourly column to sum over the day.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -305,7 +299,7 @@ def plot_scenario_comparison(
         ylabel = f"daily {metric} [kWh]"
     fig, ax = plt.subplots(figsize=(max(5, 1.2 * len(names)), 3.8))
     ax.bar(names, values, color="C0")
-    ax.set(ylabel=ylabel, title=f"Scenario comparison - {metric}")
+    ax.set(ylabel=ylabel)
     ax.tick_params(axis="x", rotation=20)
     return _finish(fig, save_to)
 
@@ -324,7 +318,7 @@ def plot_linear_disutility_sensitivity(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -363,7 +357,7 @@ def plot_linear_disutility_sensitivity(
         label=rf"$c^{{PV}}={data.pv_marginal_cost:.2f}$ DKK/kWh",
     )
 
-    # Labels and title
+    # Axis labels and units
     ax.set(
         xlabel=r"Linear disutility $c^L$ [DKK/kWh]",
         ylabel="Daily load [kWh]",
@@ -388,7 +382,7 @@ def plot_quadratic_disutility_sensitivity(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -433,7 +427,7 @@ def plot_q3_comparison(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -473,7 +467,6 @@ def plot_q3_comparison(
     ax.set(
         xlabel="hour",
         ylabel="load [kWh/h]",
-        title="Q2(c) and Q3 load comparison",
     )
 
     ax.legend()
@@ -498,7 +491,7 @@ def plot_q3_battery_comparison(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -546,7 +539,6 @@ def plot_q3_battery_comparison(
     ax.set(
         xlabel="hour",
         ylabel="kWh/h",
-        title="Effect of battery on optimal load schedule",
     )
 
     ax.legend(
@@ -575,7 +567,7 @@ def plot_q3_energy_sensitivity(
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
     unconstrained_energy : float
         Solved unconstrained daily consumption, in kWh.
 
@@ -601,7 +593,6 @@ def plot_q3_energy_sensitivity(
     ax1.set(
         xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
         ylabel="Objective [DKK]",
-        title="Q3 sensitivity to minimum daily energy",
     )
 
     ax2 = ax1.twinx()
@@ -671,7 +662,7 @@ def plot_q3_energy_supply_sensitivity(
     pv_saturation_Emin : float or None, optional
         Estimated full-PV-use threshold, in kWh.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
     unconstrained_energy : float
         Solved unconstrained daily consumption, in kWh.
 
@@ -711,7 +702,6 @@ def plot_q3_energy_supply_sensitivity(
     ax.set(
         xlabel=r"Minimum daily energy $E^{min}$ [kWh]",
         ylabel="Daily energy [kWh]",
-        title="Q3 energy supply sensitivity",
     )
 
     ax.axvline(
@@ -745,7 +735,7 @@ def plot_q3_cq_sensitivity(
     metrics : list[dict]
         Daily sensitivity metrics from the corresponding analysis helper.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -769,7 +759,6 @@ def plot_q3_cq_sensitivity(
     ax1.set(
         xlabel=r"Quadratic disutility $c^Q$ [DKK/kWh$^2$]",
         ylabel="Absolute deviation [kWh]",
-        title=r"Q3 sensitivity to quadratic disutility $c^Q$",
     )
 
     ax1.set_xscale("log")
@@ -827,7 +816,7 @@ def plot_battery_value_sensitivity(
     base_x : float or None, optional
         Parameter value used to mark the reference scenario.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -869,7 +858,7 @@ def plot_battery_value_sensitivity(
     return _finish(fig, save_to)
 
 
-def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
+def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None):
     """Return load/deviation comparisons against the reference; optionally save.
 
     Parameters
@@ -879,9 +868,7 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
     data : InputData
         Physical inputs and consumer preferences.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
-    title : str or None, optional
-        Custom figure title; None retains the default title.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -905,7 +892,6 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
             color=colors[label],
             label=label,
         )
-    axes[0].set_title(title or "Q2 base case: comparison of disutility models")
     axes[0].set_ylabel("Hourly consumption [kWh]")
     axes[0].legend()
     axes[1].set_ylabel("Absolute deviation [kWh]")
@@ -928,7 +914,7 @@ def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None)
     reference : array-like
         Preferred consumption for each one-hour period, in kWh.
     save_to : Path, str or None, optional
-        Output path; PNG output also receives a vector PDF.
+        Output filename or stem; figures are saved as PNG.
 
     Returns
     -------
@@ -948,7 +934,6 @@ def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None)
     colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
     for col, (profile, prices) in enumerate(profiles.items()):
         axes[0, col].step(hours, prices, where="mid", color="black")
-        axes[0, col].set_title(profile)
         axes[0, col].set_ylabel("Energy price [DKK/kWh]")
         ax = axes[1, col]
         ax.plot(hours, reference, "k--", label="Reference")

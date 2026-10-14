@@ -81,8 +81,8 @@ are thin configurations of a shared parameterized LP/QP builder.
 
 Q1 solutions return daily procurement cost, gross consumption utility and net
 surplus in `results.metrics`, in DKK. The minimized objective is procurement
-minus utility; surplus is its negative. Components are saved in the summary
-TXT and JSON files, and checked against the solver objective.
+minus utility; surplus is its negative. Components are saved in the JSON
+summary and checked against the solver objective.
 
 The Q2 sweep tables interpret the requested **binding deviation bound** as the
 physical endpoints `load_min-reference <= load-reference <= load_max-reference`.
@@ -110,7 +110,8 @@ Run these commands from the repository root:
 
 Omit `--scenarios` for a base case. Add `--show` to an experiment command to
 open all figures after computation; otherwise figures are saved without a GUI.
-PNG figures also receive a vector PDF for the report.
+Figures are saved as PNG only, without plot or subplot titles. Describe each
+figure in its report caption; axis labels, units and legends remain on the plots.
 
 `--q2-comparison` runs the existing Q2 sweeps once and reuses their results for
 the base case and three selected scenarios: weak preferences `(cL=0.5, cQ=0.1)`,
@@ -142,14 +143,26 @@ permutation, the uncoupled temporal limit and a finite-difference Q3 dual.
 Its outputs are in `results/validation/`. Regression checks can be run with
 `python -m unittest discover -s tests`.
 
-Every saved solution includes hourly CSV, TXT/JSON summary, the actual scenario
-parameters and validation diagnostics. Separable solutions also export an
-hourly analytical comparison (Q1 includes admissible balance-dual intervals).
-Battery solutions export a separate `*_battery_states.csv` with all 25 boundary
-states, including terminal SoC. Sweeps retain individual runs as well as aggregate
-tables. Q3/battery comparisons export `comparison.csv`; battery sensitivity
-tables include both paired objectives and overlap counts. Files under `results/`
-remain generated outputs and need not be committed.
+Generated outputs are kept compact:
+
+| Experiment | Saved outputs |
+|---|---|
+| Base cases and selected comparisons | Hourly CSV, JSON summary and PNG figures |
+| Coefficient, energy and battery sensitivity sweeps | Combined metrics CSV and PNG figures |
+| Numerical validation | `validation.csv` and `checks.json` |
+| Saved battery solutions | An additional `*_battery_states.csv` with all 25 boundary states |
+
+JSON summaries retain the actual scenario parameters, validation diagnostics and
+available hourly analytical comparisons, including Q1 balance-dual intervals.
+Separate TXT summaries and analytical CSVs are omitted because they duplicate
+these records. Sensitivity sweeps retain aggregate tables rather than exporting
+every individual solve. Q3/battery comparisons retain their paired schedules and
+`comparison.csv`; battery sensitivity tables include both objectives and overlap
+counts. Files under `results/` are generated and need not be committed.
+
+Existing files are not deleted automatically. To avoid mixing old and new outputs,
+rename the existing `results/` directory before regenerating the experiments,
+then restore the tracked placeholder with `git restore -- results/.gitkeep`.
 
 **Use it from a notebook or your own script:**
 
@@ -188,7 +201,8 @@ All question classes now configure one parameterized `FlexibleConsumerModel`:
 and battery dynamics each have one implementation. The public class names are
 compatible wrappers. `MODEL_CLASSES`, `SWEEPS`, `Q1_SCENARIOS`,
 `Q2_COMPARISON_SELECTIONS` and `PRICE_PROFILES` in `main.py` declare experiments;
-the shared sweep runner saves outputs and reuses existing base-case solutions.
+the shared sweep runner returns results in memory and reuses existing base-case
+solutions; experiment runners save aggregate tables and figures.
 
 Every variable family is stored in `self.var` and every constraint for which dual values are required is stored in `self.con`. The existing `solve()` method then extracts primal and dual results automatically.
 

@@ -27,22 +27,47 @@ from src.analysis import compare_q2_q3, analyze_linear_sensitivity, analyze_quad
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
+# Report experiments are declared once; runners own solving/analysis/exports.
+MODEL_CLASSES = {
+    "Q1_caseA": FlexibleConsumerModel, "Q1_caseB": FlexibleConsumerModel,
+    "Q2_linear": LinearDisutilityModel, "Q2_quadratic": QuadraticDisutilityModel,
+    "Q3": DailyEnergyModel, "Q3_battery": BatteryModel,
+}
+SWEEPS = {'linear': [0.5, 1.0, 1.2, 1.3, 1.4, 1.409, 1.41, 1.411, 1.43, 1.5, 1.75, 2.0, 2.5, 3.0], 'quadratic': [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0], 'energy': [15.0, 20.0, 22.0, 22.76, 22.77, 25.0, 30.0, 32.34, 35.0, 40.0, 45.0, 50.0], 'daily_quadratic': [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0], 'battery_spread': [0.0, 0.5, 1.0, 1.5, 2.0], 'battery_capacity': [1.0, 2.0, 4.0, 6.0, 8.0]}
+Q2_COMPARISON_SELECTIONS = {
+    "Weak preferences": (0.5, 0.1), "Transition": (1.41, 0.5), "Strong preferences": (2.5, 20.0),
+}
+PRICE_PROFILES = {"Alternating": np.tile([0.85, 2.50], 12), "Clustered": np.repeat([0.85, 2.50], 12)}
+Q1_SCENARIOS = {
+    "base": (None, {}),
+    "flat_prices": (scale_prices, {"factor": 0.0, "keep_mean": True}),
+    "double_spread": (scale_prices, {"factor": 2.0, "keep_mean": True}),
+    "no_tariffs": (set_tariffs, {"import_tariff": 0.0, "export_tariff": 0.0}),
+    "no_pv": (scale_pv, {"factor": 0.0}),
+}
+
+
+def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
+    """Apply a declared sweep and save each run, reusing already solved base cases."""
+    existing = existing or {}
+    runs = []
+    for value in values:
+        result = existing.get(value)
+        if result is None:
+            result = model_class(transform(data, value)).build().solve()
+        result.save(out, tag=f"{tag}_{value:g}")
+        runs.append((value, result))
+    return runs
+
+
+
 
 def run_base_case(question: str, out: Path, show: bool) -> Results | None:
     data = load_question(question)
     print(data.summary(), "\n")
     plot_inputs(data, save_to=out / "inputs.png")
 
-    if question == "Q2_linear":
-        model = LinearDisutilityModel(data).build()
-    elif question == "Q2_quadratic":
-        model = QuadraticDisutilityModel(data).build()
-    elif question == "Q3":
-        model = DailyEnergyModel(data).build()
-    elif question == "Q3_battery":
-        model = BatteryModel(data).build()
-    else:
-        model = FlexibleConsumerModel(data).build()
+    model = MODEL_CLASSES[question](data).build()
     try:
         results = model.solve()
     except NotImplementedError as e:
@@ -59,29 +84,16 @@ def run_base_case(question: str, out: Path, show: bool) -> Results | None:
         matplotlib.pyplot.show()
     return results
 
-def run_linear_disutility_sweep(out: Path):
+def run_linear_disutility_sweep(out: Path, base_result: Results | None = None):
     """Run Q2 linear for different values of the linear disutility coefficient."""
 
     data = load_question("Q2_linear")
 
-    cL_values = [
-        0.5, 1.0, 1.2, 1.3, 1.4,
-        1.409, 1.41, 1.411, 1.43,
-        1.5, 1.75, 2.0, 2.5, 3.0
-    ]
+    cL_values = SWEEPS["linear"]
 
-    results = []
-
-    for cL in cL_values:
-
-        # Create scenario
-        scenario_data = set_linear_disutility(data, cL)
-
-        # Solve model
-        result = LinearDisutilityModel(scenario_data).build().solve()
-
-        results.append((cL, result))
-        result.save(out / "runs", tag=f"cL_{cL:g}")
+    results = _solve_sweep(data, LinearDisutilityModel, cL_values, set_linear_disutility,
+                           out / "runs", "cL",
+                           {data.linear_disutility: base_result} if base_result is not None else {})
 
     # Analyze all results
     metrics = analyze_linear_sensitivity(data, results)
@@ -111,39 +123,16 @@ def run_linear_disutility_sweep(out: Path):
 
     return results
 
-def run_quadratic_disutility_sweep(out: Path):
+def run_quadratic_disutility_sweep(out: Path, base_result: Results | None = None):
     """Run Q2 quadratic for different values of the quadratic disutility coefficient."""
 
     data = load_question("Q2_quadratic")
 
-    cQ_values = [
-    0.01,
-    0.025,
-    0.05,
-    0.1,
-    0.25,
-    0.5,
-    1.0,
-    2.0,
-    5.0,
-    10.0,
-    20.0,
-    ]
+    cQ_values = SWEEPS["quadratic"]
 
-    results = []
-
-    for cQ in cQ_values:
-
-        # Create scenario
-        scenario_data = set_quadratic_disutility(data, cQ)
-
-        # Solve model
-        result = QuadraticDisutilityModel(
-            scenario_data
-        ).build().solve()
-
-        results.append((cQ, result))
-        result.save(out / "runs", tag=f"cQ_{cQ:g}")
+    results = _solve_sweep(data, QuadraticDisutilityModel, cQ_values, set_quadratic_disutility,
+                           out / "runs", "cQ",
+                           {data.quadratic_disutility: base_result} if base_result is not None else {})
 
     # Analyze results
     metrics = analyze_quadratic_sensitivity(
@@ -230,9 +219,7 @@ def run_q2_model_comparison(out: Path):
     quadratic = dict(run_quadratic_disutility_sweep(out / "quadratic_sweep"))
     selections = {
         "Base": (data_linear.linear_disutility, data_quadratic.quadratic_disutility),
-        "Weak preferences": (0.5, 0.1),
-        "Transition": (1.41, 0.5),
-        "Strong preferences": (2.5, 20.0),
+        **Q2_COMPARISON_SELECTIONS,
     }
     metrics = []
     for scenario, (cL, cQ) in selections.items():
@@ -302,10 +289,7 @@ def run_q2_price_structure_experiment(out: Path):
     if data_quadratic.n_hours != 24:
         raise ValueError("The selected experiment uses 24 one-hour periods.")
 
-    profiles = {
-        "Alternating": np.tile([0.85, 2.50], 12),
-        "Clustered": np.repeat([0.85, 2.50], 12),
-    }
+    profiles = PRICE_PROFILES
 
     if not np.array_equal(
         np.sort(profiles["Alternating"]), np.sort(profiles["Clustered"])
@@ -358,14 +342,16 @@ def run_q2_price_structure_experiment(out: Path):
 
     return metrics_df
 
-def run_q3_comparison(out: Path):
+def run_q3_comparison(out: Path, result_q3=None, result_q2=None):
     """Run and compare the Q2 quadratic and Q3 base cases."""
 
     data_q2 = load_question("Q2_quadratic")
     data_q3 = load_question("Q3")
 
-    result_q2 = QuadraticDisutilityModel(data_q2).build().solve()
-    result_q3 = DailyEnergyModel(data_q3).build().solve()
+    if result_q2 is None:
+        result_q2 = QuadraticDisutilityModel(data_q2).build().solve()
+    if result_q3 is None:
+        result_q3 = DailyEnergyModel(data_q3).build().solve()
 
     comp_out = out / "q3_comparison"
     comp_out.mkdir(parents=True, exist_ok=True)
@@ -401,14 +387,16 @@ def run_q3_comparison(out: Path):
 
     return metrics
 
-def run_q3_battery_comparison(out: Path):
+def run_q3_battery_comparison(out: Path, result_bat=None, result_q3=None):
     """Compare Q3 without and with battery."""
 
     data_q3 = load_question("Q3")
     data_bat = load_question("Q3_battery")
 
-    result_q3 = DailyEnergyModel(data_q3).build().solve()
-    result_bat = BatteryModel(data_bat).build().solve()
+    if result_q3 is None:
+        result_q3 = DailyEnergyModel(data_q3).build().solve()
+    if result_bat is None:
+        result_bat = BatteryModel(data_bat).build().solve()
 
     metrics = compare_q3_battery(
         data_q3,
@@ -433,49 +421,19 @@ def run_q3_battery_comparison(out: Path):
         print(f"{key:25s}: {value}")
 
     return metrics
-def run_q3_energy_sweep(out: Path):
+def run_q3_energy_sweep(out: Path, base_result: Results | None = None, unconstrained_result: Results | None = None):
     """Run Q3 for different minimum daily energy requirements."""
 
     data = load_question("Q3")
-    unconstrained_model = QuadraticDisutilityModel(data).build()
-    unconstrained_model.m.Params.BarConvTol = 1e-12
-    unconstrained_energy = float(unconstrained_model.solve().hourly["load"].sum())
+    if unconstrained_result is None:
+        unconstrained_result = QuadraticDisutilityModel(data).build().solve()
+    unconstrained_energy = float(unconstrained_result.hourly["load"].sum())
 
-    Emin_values = [
-        15.0,
-        20.0,
-        22.0,
-        22.76,
-        22.77,
-        25.0,
-        30.0,
+    Emin_values = SWEEPS["energy"]
 
-        # Reference-profile energy
-        32.34,
-
-        35.0,
-        40.0,
-        45.0,
-        50.0,
-    ]
-
-    results = []
-
-    for Emin in Emin_values:
-
-        # Create Q3 scenario with modified minimum daily energy
-        scenario_data = set_load_preferences(
-            data,
-            min_daily_energy_kWh=Emin,
-        )
-
-        # Resolve small energy slacks and duals near the activation threshold.
-        model = DailyEnergyModel(scenario_data).build()
-        model.m.Params.BarConvTol = 1e-12
-        result = model.solve()
-
-        results.append((Emin, result))
-        result.save(out / "energy_runs", tag=f"Emin_{Emin:g}")
+    results = _solve_sweep(data, DailyEnergyModel, Emin_values, lambda d, value: set_load_preferences(d, min_daily_energy_kWh=value),
+                           out / "energy_runs", "Emin",
+                           {data.min_daily_energy_kWh: base_result} if base_result is not None else {})
 
     # Analyse all sensitivity runs
     metrics = analyze_q3_energy_sensitivity(
@@ -563,40 +521,16 @@ def find_pv_saturation_Emin(
 
     return upper
 
-def run_q3_cq_sweep(out: Path):
+def run_q3_cq_sweep(out: Path, base_result: Results | None = None):
     """Run Q3 for different quadratic disutility coefficients."""
 
     data = load_question("Q3")
 
-    cQ_values = [
-        0.01,
-        0.025,
-        0.05,
-        0.1,
-        0.25,
-        0.5,
-        1.0,
-        2.0,
-        5.0,
-        10.0,
-        20.0,
-    ]
+    cQ_values = SWEEPS["daily_quadratic"]
 
-    results = []
-
-    for cQ in cQ_values:
-
-        scenario_data = set_quadratic_disutility(
-            data,
-            cQ,
-        )
-
-        result = DailyEnergyModel(
-            scenario_data
-        ).build().solve()
-
-        results.append((cQ, result))
-        result.save(out / "cq_runs", tag=f"cQ_{cQ:g}")
+    results = _solve_sweep(data, DailyEnergyModel, cQ_values, set_quadratic_disutility,
+                           out / "cq_runs", "cQ",
+                           {data.quadratic_disutility: base_result} if base_result is not None else {})
 
     metrics = analyze_q3_cq_sensitivity(
         data,
@@ -629,9 +563,7 @@ def run_q3_cq_sweep(out: Path):
 
     return results
 
-
-
-def run_q3_battery_sensitivity(out: Path):
+def run_q3_battery_sensitivity(out: Path, base_no_bat_result=None, base_bat_result=None):
     """Sensitivity of battery value to price variation and capacity."""
 
     base_no_bat = load_question("Q3")
@@ -640,15 +572,19 @@ def run_q3_battery_sensitivity(out: Path):
     # ---------------------------------------------------------
     # 1. Price variation: scale spread while keeping mean fixed
     # ---------------------------------------------------------
-    price_factors = [0.0, 0.5, 1.0, 1.5, 2.0]
+    price_factors = SWEEPS["battery_spread"]
     price_results = []
 
     for factor in price_factors:
         data_no_bat = scale_prices(base_no_bat, factor, keep_mean=True)
         data_bat = scale_prices(base_bat, factor, keep_mean=True)
 
-        result_no_bat = DailyEnergyModel(data_no_bat).build().solve()
-        result_bat = BatteryModel(data_bat).build().solve()
+        result_no_bat = base_no_bat_result if factor == 1.0 else None
+        result_bat = base_bat_result if factor == 1.0 else None
+        if result_no_bat is None:
+            result_no_bat = DailyEnergyModel(data_no_bat).build().solve()
+        if result_bat is None:
+            result_bat = BatteryModel(data_bat).build().solve()
 
         folder = out / "price_runs" / f"spread_{factor:g}"
         result_no_bat.save(folder, tag="without_battery")
@@ -667,16 +603,20 @@ def run_q3_battery_sensitivity(out: Path):
     # ---------------------------------------------------------
     # 2. Battery capacity
     # ---------------------------------------------------------
-    capacities = [1.0, 2.0, 4.0, 6.0, 8.0]
+    capacities = SWEEPS["battery_capacity"]
     capacity_results = []
 
     # No-battery case is identical for all capacities
-    result_no_bat = DailyEnergyModel(base_no_bat).build().solve()
+    result_no_bat = base_no_bat_result
+    if result_no_bat is None:
+        result_no_bat = DailyEnergyModel(base_no_bat).build().solve()
     result_no_bat.save(out / "capacity_runs", tag="without_battery")
 
     for capacity in capacities:
         data_bat = set_battery_capacity(base_bat, capacity)
-        result_bat = BatteryModel(data_bat).build().solve()
+        result_bat = base_bat_result if capacity == base_bat.battery_capacity_kWh else None
+        if result_bat is None:
+            result_bat = BatteryModel(data_bat).build().solve()
         result_bat.save(out / "capacity_runs" / f"capacity_{capacity:g}", tag="with_battery")
 
         capacity_results.append({
@@ -729,19 +669,16 @@ def run_q3_battery_sensitivity(out: Path):
 
     return price_results, capacity_results
 
-def run_scenarios(question: str, out: Path) -> dict[str, Results]:
+def run_scenarios(question: str, out: Path, base_result: Results | None = None) -> dict[str, Results]:
     """Example sensitivity analysis. Replace with the scenarios you design in Question 1.g."""
     base = load_question(question)
-    scenarios = {
-        "base": base,
-        "flat_prices": scale_prices(base, factor=0.0, keep_mean=True),
-        "double_spread": scale_prices(base, factor=2.0, keep_mean=True),
-        "no_tariffs": set_tariffs(base, import_tariff=0.0, export_tariff=0.0),
-        "no_pv": scale_pv(base, factor=0.0),
-    }
+    scenarios = {name: base if transform is None else transform(base, **kwargs)
+                 for name, (transform, kwargs) in Q1_SCENARIOS.items()}
     runs: dict[str, Results] = {}
     for name, data in scenarios.items():
-        results = FlexibleConsumerModel(data).build().solve()
+        results = base_result if name == "base" else None
+        if results is None:
+            results = FlexibleConsumerModel(data).build().solve()
         results.save(out, tag=name)
         runs[name] = results
         print(f"{name:>14}: net cost {results.objective:8.2f} DKK | import {results.hourly['import'].sum():5.1f} kWh"
@@ -776,7 +713,7 @@ def run_validation(out: Path):
     cases.append(("Q1_import_tie", tied, FlexibleConsumerModel, {}))
     for label, lower, upper in [("PV_below_min", 2.0, 6.0), ("PV_above_max", 0.0, 1.0)]:
         cases.append((label, set_load_preferences(d, load_min_kWh=lower, load_max_kWh=upper), FlexibleConsumerModel, {}))
-    profiles = {"alternating": np.tile([0.85, 2.5], 12), "clustered": np.repeat([0.85, 2.5], 12)}
+    profiles = {name.lower(): prices for name, prices in PRICE_PROFILES.items()}
     for profile, prices in profiles.items():
         for label, question, cls in [("linear", "Q2_linear", LinearDisutilityModel),
                                      ("quadratic", "Q2_quadratic", QuadraticDisutilityModel),
@@ -857,29 +794,32 @@ def main() -> None:
 
     base = run_base_case(args.question, out, args.show)
 
+    unconstrained_result = no_battery_result = None
     # Q3 requires comparison with the unconstrained Q2(c) case
     if args.question == "Q3" and base is not None:
-        run_q3_comparison(out)
+        unconstrained_result = QuadraticDisutilityModel(load_question("Q2_quadratic")).build().solve()
+        run_q3_comparison(out, result_q3=base, result_q2=unconstrained_result)
     if args.question == "Q3_battery" and base is not None:
-        run_q3_battery_comparison(out)
+        no_battery_result = DailyEnergyModel(load_question("Q3")).build().solve()
+        run_q3_battery_comparison(out, result_bat=base, result_q3=no_battery_result)
 
     if args.scenarios and base is not None:
 
         if args.question == "Q2_linear":
-            run_linear_disutility_sweep(out)
+            run_linear_disutility_sweep(out, base_result=base)
 
         elif args.question == "Q2_quadratic":
-            run_quadratic_disutility_sweep(out)
+            run_quadratic_disutility_sweep(out, base_result=base)
 
         elif args.question == "Q3":
-            run_q3_energy_sweep(out)
-            run_q3_cq_sweep(out)
+            run_q3_energy_sweep(out, base_result=base, unconstrained_result=unconstrained_result)
+            run_q3_cq_sweep(out, base_result=base)
 
         elif args.question == "Q3_battery":
-            run_q3_battery_sensitivity(out)
+            run_q3_battery_sensitivity(out, base_no_bat_result=no_battery_result, base_bat_result=base)
 
         else:
-            run_scenarios(args.question, out)
+            run_scenarios(args.question, out, base_result=base)
 
     print(f"\nOutputs written to {out}")
 

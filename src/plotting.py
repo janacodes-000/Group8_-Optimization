@@ -16,7 +16,20 @@ from .model import Results
 
 
 def _finish(fig: plt.Figure, save_to: Path | str | None) -> plt.Figure:
-    """Apply layout and save a figure, with a vector PDF beside PNG outputs."""
+    """Apply layout, optionally save PNG/PDF outputs and return the Figure.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to arrange and optionally save.
+    save_to : Path, str or None
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     fig.tight_layout()
     if save_to is not None:
         Path(save_to).parent.mkdir(parents=True, exist_ok=True)
@@ -27,7 +40,20 @@ def _finish(fig: plt.Figure, save_to: Path | str | None) -> plt.Figure:
 
 
 def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figure:
-    """Hourly prices (with tariffs) and available PV / load preferences, side by side."""
+    """Return the hourly price and PV/reference Figure; save it when save_to is set.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     h = data.hours
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 3.8))
 
@@ -73,7 +99,22 @@ def plot_inputs(data: InputData, save_to: Path | str | None = None) -> plt.Figur
 def plot_schedule(
     results: Results, data: InputData, save_to: Path | str | None = None
 ) -> plt.Figure:
-    """Optimal schedule: load, PV used, import/export, with prices on a second axis."""
+    """Return the optimal flow and price Figure, optionally saving it.
+
+    Parameters
+    ----------
+    results : Results
+        Solved primal, dual and economic results.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     hr = results.hourly
     h = hr.index.to_numpy()
     battery = "battery_soc" in hr
@@ -124,6 +165,7 @@ def plot_schedule(
 
         h_soc = np.arange(data.n_hours + 1)
 
+        # Include the terminal boundary state, which has no hourly DataFrame row.
         soc = np.append(
             hr["battery_soc"].to_numpy(),
             results.meta["final_battery_soc"],
@@ -186,7 +228,22 @@ def plot_schedule(
 def plot_duals(
     results: Results, data: InputData, save_to: Path | str | None = None
 ) -> plt.Figure:
-    """Hourly dual variables (all ``dual_*`` columns) against the price signals."""
+    """Return a Figure of hourly duals against price signals; optionally save it.
+
+    Parameters
+    ----------
+    results : Results
+        Solved primal, dual and economic results.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     hr = results.hourly
     dual_cols = [c for c in hr.columns if c.startswith("dual_")]
     fig, ax = plt.subplots(figsize=(11, 4))
@@ -223,8 +280,21 @@ def plot_scenario_comparison(
     metric: str = "objective",
     save_to: Path | str | None = None,
 ) -> plt.Figure:
-    """Bar chart of one metric across scenarios. ``metric`` is ``"objective"`` or the name of an
-    hourly column whose daily sum is compared (e.g. ``"import"``, ``"export"``, ``"load"``).
+    """Plot daily objective or summed hourly quantities across scenarios.
+
+    Parameters
+    ----------
+    runs : dict[str, Results]
+        Solved results keyed by model or scenario label.
+    metric : str, optional
+        "objective", or an hourly column to sum over the day.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
     """
     names = list(runs)
     if metric == "objective":
@@ -245,7 +315,22 @@ def plot_linear_disutility_sensitivity(
     data: InputData,
     save_to: Path | str | None = None,
 ) -> plt.Figure:
-    """Plot optimal daily load for different linear disutility coefficients."""
+    """Return the daily-load Figure for the linear sweep; optionally save it.
+
+    Parameters
+    ----------
+    results : list[tuple[float, Results]]
+        Swept coefficients and their solved results.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     # Extract cL values and corresponding optimal daily load
     cL_values = [cL for cL, _ in results]
@@ -294,7 +379,22 @@ def plot_quadratic_disutility_sensitivity(
     data,
     save_to=None,
 ):
-    """Plot deviation from reference load for different cQ values."""
+    """Return the quadratic-sweep deviation Figure; optionally save it.
+
+    Parameters
+    ----------
+    results : list[tuple[float, Results]]
+        Swept coefficients and their solved results.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     cQ_values = [cQ for cQ, _ in results]
 
@@ -322,7 +422,24 @@ def plot_q3_comparison(
     data: InputData,
     save_to: Path | str | None = None,
 ) -> plt.Figure:
-    """Compare the reference load with Q2 quadratic and Q3 optimal load schedules."""
+    """Return the reference, Q2 and Q3 load-profile Figure; optionally save it.
+
+    Parameters
+    ----------
+    result_q2 : Results
+        Solved unconstrained quadratic case.
+    result_q3 : Results
+        Solved daily-energy case without storage.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     h = result_q2.hourly.index.to_numpy()
 
@@ -370,7 +487,24 @@ def plot_q3_battery_comparison(
     data,
     save_to=None,
 ):
-    """Compare optimal load without and with battery."""
+    """Return the load-profile Figure with and without storage; optionally save it.
+
+    Parameters
+    ----------
+    result_q3 : Results
+        Solved daily-energy case without storage.
+    result_bat : Results
+        Solved daily-energy case with storage.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     hr_q3 = result_q3.hourly
     hr_bat = result_bat.hourly
@@ -432,7 +566,24 @@ def plot_q3_energy_sensitivity(
     *,
     unconstrained_energy: float,
 ) -> plt.Figure:
-    """Plot objective and dual value for different minimum daily energy requirements."""
+    """Return the objective/energy-dual Figure with the solved threshold marker.
+
+    Parameters
+    ----------
+    metrics : list[dict]
+        Daily sensitivity metrics from the corresponding analysis helper.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+    unconstrained_energy : float
+        Solved unconstrained daily consumption, in kWh.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     Emin_values = [m["E_min"] for m in metrics]
     objectives = [m["objective"] for m in metrics]
@@ -509,7 +660,26 @@ def plot_q3_energy_supply_sensitivity(
     *,
     unconstrained_energy: float,
 ) -> plt.Figure:
-    """Plot PV use and grid import for different minimum daily energy requirements."""
+    """Return the daily PV/import Figure with computed energy-threshold markers.
+
+    Parameters
+    ----------
+    metrics : list[dict]
+        Daily sensitivity metrics from the corresponding analysis helper.
+    data : InputData
+        Physical inputs and consumer preferences.
+    pv_saturation_Emin : float or None, optional
+        Estimated full-PV-use threshold, in kWh.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+    unconstrained_energy : float
+        Solved unconstrained daily consumption, in kWh.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     Emin_values = [m["E_min"] for m in metrics]
     pv_use = [m["pv"] for m in metrics]
@@ -568,7 +738,20 @@ def plot_q3_cq_sensitivity(
     metrics: list[dict],
     save_to: Path | str | None = None,
 ) -> plt.Figure:
-    """Plot deviation and procurement cost for different quadratic disutility coefficients."""
+    """Return Q3 absolute deviation and procurement cost against cQ; optionally save.
+
+    Parameters
+    ----------
+    metrics : list[dict]
+        Daily sensitivity metrics from the corresponding analysis helper.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
 
     cQ_values = [m["cQ"] for m in metrics]
     deviations = [m["absolute_deviation"] for m in metrics]
@@ -631,7 +814,26 @@ def plot_battery_value_sensitivity(
     base_x=None,
     save_to=None,
 ):
-    """Plot battery value in DKK/day against one declared scenario parameter."""
+    """Return battery value against a selected sensitivity parameter.
+
+    Parameters
+    ----------
+    results : list[dict]
+        Sensitivity rows containing the selected parameter and battery_value.
+    x_key : str
+        Sensitivity metric used on the horizontal axis.
+    xlabel : str
+        Horizontal-axis label, including parameter units.
+    base_x : float or None, optional
+        Parameter value used to mark the reference scenario.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     x = [r[x_key] for r in results]
     y = [r["battery_value"] for r in results]
 
@@ -668,7 +870,24 @@ def plot_battery_value_sensitivity(
 
 
 def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
-    """Plot Q2 base schedules and absolute deviations, in kWh per hour."""
+    """Return load/deviation comparisons against the reference; optionally save.
+
+    Parameters
+    ----------
+    runs : dict[str, Results]
+        Solved results keyed by model or scenario label.
+    data : InputData
+        Physical inputs and consumer preferences.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+    title : str or None, optional
+        Custom figure title; None retains the default title.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     colors = {"Linear": "tab:blue", "Quadratic": "tab:orange", "Temporal": "tab:green"}
     hours = data.hours
@@ -698,7 +917,24 @@ def plot_q2_bonus_base(runs: dict, data: InputData, save_to=None, title=None):
 
 
 def plot_q2_price_structure(profiles: dict, runs: dict, reference, save_to=None):
-    """Compare hourly prices and Q2 loads for controlled price-order experiments."""
+    """Return paired price/load panels for each controlled price profile.
+
+    Parameters
+    ----------
+    profiles : dict[str, numpy.ndarray]
+        Named hourly energy-price profiles, in DKK/kWh.
+    runs : dict[str, dict[str, Results]]
+        Solved model results grouped by price-profile name.
+    reference : array-like
+        Preferred consumption for each one-hour period, in kWh.
+    save_to : Path, str or None, optional
+        Output path; PNG output also receives a vector PDF.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure for display or saved report output.
+    """
     hours = range(len(reference))
     fig, axes = plt.subplots(
         2,

@@ -42,7 +42,31 @@ SHARED_FILES = (
 
 @dataclass
 class InputData:
-    """All parameters of one consumer for one case, with units in the attribute names."""
+    """Validated physical and economic inputs for one consumer case.
+
+    Remaining fields describe load bounds, tariffs, penalties, battery inputs
+    and optional forecasts; their inline comments specify units.
+
+    Attributes
+    ----------
+    question, consumer_id : str
+        Case and consumer identifiers.
+    hours : numpy.ndarray
+        Indices of consecutive one-hour periods.
+    energy_price : numpy.ndarray
+        Hourly market prices, in DKK/kWh.
+    pv_available : numpy.ndarray
+        Available PV energy per one-hour period, in kWh.
+    reference_load : numpy.ndarray or None
+        Preferred hourly consumption, in kWh.
+    raw : dict
+        Original JSON contents, retained for traceability.
+
+    Methods
+    -------
+    summary()
+        Return a readable input summary.
+    """
 
     question: str
     consumer_id: str
@@ -91,11 +115,10 @@ class InputData:
         None  # state of charge at the start of the day
     )
     battery_final_soc_kWh: float | None = (
-        None  # None ON PURPOSE: the end-of-horizon treatment is
+        None  # Leave None: the cyclic model returns to the initial SoC.
     )
-    # your modeling choice (Question 3.(g))
 
-    # Next-day forecasts (for exploring the end-of-horizon choice of Question 3.(g))
+    # Forecasts are retained for extensions; the current solve uses the first day.
     energy_price_next_day: np.ndarray | None = (
         None  # DKK/kWh, 24 values for the following day
     )
@@ -114,11 +137,23 @@ class InputData:
 
     @property
     def n_hours(self) -> int:
-        """Number of one-hour periods."""
+        """Number of one-hour periods.
+
+        Returns
+        -------
+        int
+            Number of one-hour periods.
+        """
         return len(self.hours)
 
     def summary(self) -> str:
-        """Compact textual overview of the dataset."""
+        """Compact textual overview of the dataset.
+
+        Returns
+        -------
+        str
+            Human-readable input summary with units.
+        """
         lines = [
             f"Case                 : {self.question}",
             f"Consumer             : {self.consumer_id}",
@@ -147,11 +182,17 @@ class InputData:
 
 # ---------------------------------------------------------------------- loading
 def validate_input_data(data: InputData) -> None:
-    """Reject non-finite or inconsistent physical/economic inputs before solving.
+    """Check array shapes, finite values, bounds and parameter consistency.
 
-    Reference profiles may lie outside modified load bounds; that is a valid
-    comfort preference. Grid limits are absent in this assignment and are not
-    silently accepted by a model which does not implement them.
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+
+    Raises
+    ------
+    ValueError
+        If inputs are non-finite, inconsistent or unsupported.
     """
     n = data.n_hours
     if n == 0 or not np.array_equal(data.hours, np.arange(n)):
@@ -235,7 +276,23 @@ def validate_input_data(data: InputData) -> None:
 
 
 def _read_json(path: Path) -> Any:
-    """Read an input JSON file with an actionable missing-file error."""
+    """Read an input JSON file with an actionable missing-file error.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the input JSON file.
+
+    Returns
+    -------
+    object
+        Decoded JSON contents.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the input file does not exist.
+    """
     if not path.exists():
         raise FileNotFoundError(f"Missing input file: {path}")
     with open(path, "r", encoding="utf-8") as f:
@@ -243,7 +300,29 @@ def _read_json(path: Path) -> Any:
 
 
 def _first_with(items: list[dict], key: str, value: str, what: str) -> dict:
-    """Return the first dict in ``items`` whose ``key`` equals ``value``."""
+    """Return the first dict in ``items`` whose ``key`` equals ``value``.
+
+    Parameters
+    ----------
+    items : list[dict]
+        Catalogue entries to search.
+    key : str
+        Dictionary field to match.
+    value : str
+        Required value of the matching field.
+    what : str
+        Catalogue name used in a missing-entry error.
+
+    Returns
+    -------
+    dict
+        First catalogue entry whose key matches the required value.
+
+    Raises
+    ------
+    KeyError
+        If no matching catalogue entry exists.
+    """
     for item in items:
         if item.get(key) == value:
             return item
@@ -251,7 +330,27 @@ def _first_with(items: list[dict], key: str, value: str, what: str) -> dict:
 
 
 def _as_array(values, name: str, n_hours: int = 24) -> np.ndarray:
-    """Read one finite hourly float vector."""
+    """Read one finite hourly float vector.
+
+    Parameters
+    ----------
+    values : array-like
+        Hourly input values to convert to floating point.
+    name : str
+        Input field name used in validation error messages.
+    n_hours : int, optional
+        Required number of one-hour values.
+
+    Returns
+    -------
+    numpy.ndarray
+        Finite floating-point vector of length n_hours.
+
+    Raises
+    ------
+    ValueError
+        If the vector has the wrong shape or non-finite values.
+    """
     arr = np.asarray(values, dtype=float)
     if arr.shape != (n_hours,):
         raise ValueError(
@@ -263,7 +362,18 @@ def _as_array(values, name: str, n_hours: int = 24) -> np.ndarray:
 
 
 def _case_name(question: str) -> str:
-    """Accept ``"Q1_caseA"``, ``"params_Q1_caseA"`` or ``"params_Q1_caseA.json"``."""
+    """Accept ``"Q1_caseA"``, ``"params_Q1_caseA"`` or ``"params_Q1_caseA.json"``.
+
+    Parameters
+    ----------
+    question : str
+        Case name, such as "Q1_caseA" or "Q3".
+
+    Returns
+    -------
+    str
+        Case name without the optional params_ prefix or .json suffix.
+    """
     name = question.removesuffix(".json")
     return name.removeprefix("params_")
 
@@ -276,11 +386,23 @@ def load_question(
     Parameters
     ----------
     question : str
-        Name of the case, e.g. ``"Q1_caseA"`` (the ``params_``/``.json`` wrapping is optional).
-    data_dir : Path, optional
-        Data directory (defaults to ``<repo>/data``).
+        Case name, such as "Q1_caseA" or "Q3".
+    data_dir : Path or str, optional
+        Directory containing case and shared input JSON files.
     consumer_index : int, optional
-        Which consumer of the case file to load (Assignment 1 has one per case).
+        Zero-based consumer index within the case file.
+
+    Returns
+    -------
+    InputData
+        Validated consumer, appliance and grid inputs.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required JSON file is missing.
+    ValueError
+        If the assembled inputs are inconsistent.
     """
     data_dir = Path(data_dir)
     case = _case_name(question)
@@ -409,7 +531,18 @@ def load_question(
 
 
 def list_questions(data_dir: Path | str = DATA_DIR) -> list[str]:
-    """Names of all cases available under ``data/`` (one per ``params_*.json``)."""
+    """Names of all cases available under ``data/`` (one per ``params_*.json``).
+
+    Parameters
+    ----------
+    data_dir : Path or str, optional
+        Directory containing case and shared input JSON files.
+
+    Returns
+    -------
+    list[str]
+        Available case names in the data directory.
+    """
     return sorted(
         p.stem.removeprefix("params_") for p in Path(data_dir).glob("params_*.json")
     )

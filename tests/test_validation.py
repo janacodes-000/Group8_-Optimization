@@ -26,7 +26,10 @@ from src.scenarios import (
 
 
 class ValidationTests(unittest.TestCase):
+    """Regression checks for optimality, invalid inputs and corrupted results."""
+
     def test_invalid_inputs_are_rejected_before_solving(self):
+        """Reject invalid physical/economic inputs before constructing a solver model."""
         d = load_question("Q3_battery")
         for changes in [
             {"energy_price": np.full(24, np.nan)},
@@ -40,6 +43,7 @@ class ValidationTests(unittest.TestCase):
                 replace(d, **changes)
 
     def test_mean_preserving_scale_rejects_clipping(self):
+        """Preserve the declared mean and reject factors that would require clipping."""
         d = load_question("Q3")
         self.assertAlmostEqual(
             scale_prices(d, 2, True).energy_price.mean(), d.energy_price.mean()
@@ -48,10 +52,12 @@ class ValidationTests(unittest.TestCase):
             scale_prices(d, 3, True)
 
     def test_capacity_sweep_preserves_initial_fraction(self):
+        """Keep initial SoC divided by capacity constant when changing capacity."""
         d = replace(load_question("Q3_battery"), battery_initial_soc_kWh=1.0)
         self.assertEqual(set_battery_capacity(d, 8.0).battery_initial_soc_kWh, 2.0)
 
     def test_import_tie_accepts_an_optimal_interval(self):
+        """Accept any optimal load when utility equals the effective import price."""
         d = load_question("Q1_caseA")
         d = scale_pv(
             replace(
@@ -66,6 +72,7 @@ class ValidationTests(unittest.TestCase):
         FlexibleConsumerModel(d).build().solve()
 
     def test_energy_activation_matches_analytical_threshold(self):
+        """Check activity on either side of the independently derived energy threshold."""
         d = load_question("Q3")
         # Derive the threshold independently from input data and hourly economics.
         unconstrained_energy = sum(
@@ -92,6 +99,7 @@ class ValidationTests(unittest.TestCase):
         self.assertGreater(metrics[1]["energy_dual"], 1e-6)
 
     def test_corrupted_balance_is_rejected(self):
+        """Detect an import perturbation that breaks hourly power balance."""
         d = load_question("Q2_quadratic")
         result = deepcopy(QuadraticDisutilityModel(d).build().solve())
         result.hourly.loc[0, "import"] += 0.1
@@ -99,6 +107,7 @@ class ValidationTests(unittest.TestCase):
             validate_solution(d, result)
 
     def test_corrupted_terminal_soc_is_rejected(self):
+        """Detect a terminal-state perturbation that breaks storage feasibility."""
         d = load_question("Q3_battery")
         result = deepcopy(BatteryModel(d).build().solve())
         result.meta["final_battery_soc"] += 0.1
@@ -106,6 +115,7 @@ class ValidationTests(unittest.TestCase):
             validate_solution(d, result)
 
     def test_corrupted_objective_is_rejected(self):
+        """Detect a reported objective inconsistent with reconstructed costs."""
         d = load_question("Q2_quadratic")
         result = deepcopy(QuadraticDisutilityModel(d).build().solve())
         result.objective += 0.1

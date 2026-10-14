@@ -131,10 +131,34 @@ Q1_SCENARIOS = {
 
 
 def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
-    """Apply a declared sweep and save each run, reusing already solved base cases."""
+    """Solve and save a sweep, returning (parameter value, Results) pairs.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    model_class : type
+        Model class used to build each scenario.
+    values : iterable of float
+        Parameter values to evaluate, in sweep order.
+    transform : callable
+        Function taking (data, value) and returning the scenario inputs.
+    out : Path
+        Directory for saved results and figures.
+    tag : str
+        Scenario identifier appended to saved filenames.
+    existing : dict[float, Results] or None, optional
+        Solved results keyed by parameter value for identical physical inputs.
+
+    Returns
+    -------
+    list[tuple[float, Results]]
+        Parameter values and corresponding solved results.
+    """
     existing = existing or {}
     runs = []
     for value in values:
+        # Reuse only a caller-supplied result for this exact parameter value.
         result = existing.get(value)
         if result is None:
             result = model_class(transform(data, value)).build().solve()
@@ -144,7 +168,22 @@ def _solve_sweep(data, model_class, values, transform, out, tag, existing=None):
 
 
 def run_base_case(question: str, out: Path, show: bool = False) -> Results:
-    """Solve and save one supplied case; figure display is handled after experiments."""
+    """Solve one supplied case and save its results and figures to ``out``.
+
+    Parameters
+    ----------
+    question : str
+        Case name, such as "Q1_caseA" or "Q3".
+    out : Path
+        Directory for saved results and figures.
+    show : bool, optional
+        Compatibility flag; main() handles figure display after the run.
+
+    Returns
+    -------
+    Results
+        Validated base solution; outputs are also saved to out.
+    """
     data = load_question(question)
     print(data.summary(), "\n")
     plot_inputs(data, save_to=out / "inputs.png")
@@ -162,7 +201,20 @@ def run_base_case(question: str, out: Path, show: bool = False) -> Results:
 
 
 def run_linear_disutility_sweep(out: Path, base_result: Results | None = None):
-    """Run Q2 linear for different values of the linear disutility coefficient."""
+    """Save the Q2 linear-coefficient sweep and return (cL, Results) pairs.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    base_result : Results or None, optional
+        Previously solved supplied base case to reuse.
+
+    Returns
+    -------
+    list[tuple[float, Results]]
+        Linear coefficients in DKK/kWh and their solutions.
+    """
 
     data = load_question("Q2_linear")
 
@@ -208,7 +260,20 @@ def run_linear_disutility_sweep(out: Path, base_result: Results | None = None):
 
 
 def run_quadratic_disutility_sweep(out: Path, base_result: Results | None = None):
-    """Run Q2 quadratic for different values of the quadratic disutility coefficient."""
+    """Save the Q2 quadratic-coefficient sweep and return (cQ, Results) pairs.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    base_result : Results or None, optional
+        Previously solved supplied base case to reuse.
+
+    Returns
+    -------
+    list[tuple[float, Results]]
+        Quadratic coefficients in DKK/kWh² and their solutions.
+    """
 
     data = load_question("Q2_quadratic")
 
@@ -262,7 +327,24 @@ def _run_q2_disutility_comparison(
     out: Path,
     tag: str,
 ):
-    """Solve each Q2 model once; reuse Results.save and Q2 analysis helpers."""
+    """Solve the three Q2 preference models and save their hourly results.
+
+    Parameters
+    ----------
+    data_linear : InputData
+        Inputs for the linear-disutility consumer.
+    data_quadratic : InputData
+        Inputs for the quadratic and temporal consumers.
+    out : Path
+        Directory for saved results and figures.
+    tag : str
+        Scenario identifier appended to saved filenames.
+
+    Returns
+    -------
+    tuple[dict[str, Results], list[dict]]
+        Results keyed by model name and daily comparison metrics.
+    """
 
     out.mkdir(parents=True, exist_ok=True)
 
@@ -291,10 +373,21 @@ def _run_q2_disutility_comparison(
 
 
 def run_q2_model_comparison(out: Path):
-    """Q2(d): reuse coefficient sweeps for base and three selected regimes.
+    """Save Q2(d) comparisons and return the combined metrics DataFrame.
 
-    Coefficients are selected separately for their respective units. Equal
-    scenario labels describe response regimes, not equal comfort preferences.
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Daily metrics for the selected linear/quadratic scenarios.
+
+    Notes
+    -----
+    Selected coefficient pairs illustrate regimes, not equal comfort valuations.
     """
     out.mkdir(parents=True, exist_ok=True)
     data_linear = load_question("Q2_linear")
@@ -344,7 +437,22 @@ def run_q2_model_comparison(out: Path):
 
 
 def run_q2_bonus_base(out: Path):
-    """Run Q2(e)'s supplied-data comparison against Q2(b) and Q2(c)."""
+    """Save the supplied-data Q2(e) comparison and return its metrics DataFrame.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Daily metrics for the supplied-data three-model comparison.
+
+    Notes
+    -----
+    Check matching physical inputs and isolated temporal/quadratic calibration.
+    """
 
     data_linear = load_question("Q2_linear")
     data_quadratic = load_question("Q2_quadratic")
@@ -382,7 +490,23 @@ def run_q2_bonus_base(out: Path):
 
 
 def run_q2_price_structure_experiment(out: Path):
-    """Compare alternating and clustered prices across the three Q2 models."""
+    """Save the price-order experiment and return its metrics DataFrame.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Daily metrics for each model and price ordering.
+
+    Notes
+    -----
+    Use identical price distributions, constant reference and no PV to isolate
+    ordering. Check separable daily metrics for invariance.
+    """
 
     data_linear = load_question("Q2_linear")
     data_quadratic = load_question("Q2_quadratic")
@@ -445,7 +569,22 @@ def run_q2_price_structure_experiment(out: Path):
 
 
 def run_q3_comparison(out: Path, result_q3=None, result_q2=None):
-    """Run and compare the Q2 quadratic and Q3 base cases."""
+    """Save the Q2/Q3 base comparison and return daily comparison metrics.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    result_q3 : Results or None, optional
+        Solved daily-energy case without storage.
+    result_q2 : Results or None, optional
+        Solved unconstrained quadratic case.
+
+    Returns
+    -------
+    dict
+        Paired Q2/Q3 consumption, cost and energy-dual metrics.
+    """
 
     data_q2 = load_question("Q2_quadratic")
     data_q3 = load_question("Q3")
@@ -491,7 +630,22 @@ def run_q3_comparison(out: Path, result_q3=None, result_q2=None):
 
 
 def run_q3_battery_comparison(out: Path, result_bat=None, result_q3=None):
-    """Compare Q3 without and with battery."""
+    """Save the paired battery comparison and return daily comparison metrics.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    result_bat : Results or None, optional
+        Solved daily-energy case with storage.
+    result_q3 : Results or None, optional
+        Solved daily-energy case without storage.
+
+    Returns
+    -------
+    dict
+        Paired metrics including battery value, in DKK/day.
+    """
 
     data_q3 = load_question("Q3")
     data_bat = load_question("Q3_battery")
@@ -531,7 +685,26 @@ def run_q3_energy_sweep(
     base_result: Results | None = None,
     unconstrained_result: Results | None = None,
 ):
-    """Run Q3 for different minimum daily energy requirements."""
+    """Save the minimum-energy sweep and return (Emin, Results) pairs.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    base_result : Results or None, optional
+        Previously solved supplied base case to reuse.
+    unconstrained_result : Results or None, optional
+        Previously solved quadratic case without the daily constraint.
+
+    Returns
+    -------
+    list[tuple[float, Results]]
+        Minimum daily energy values in kWh and their solutions.
+
+    Notes
+    -----
+    Compute the unconstrained-energy and PV-use markers from their own solves.
+    """
 
     data = load_question("Q3")
     if unconstrained_result is None:
@@ -611,7 +784,30 @@ def find_pv_saturation_Emin(
     energy_tol: float = 1e-3,
     pv_tol: float = 1e-5,
 ) -> float:
-    """Find the minimum daily energy at which all available PV is used."""
+    """Estimate the daily-energy threshold for full PV use by bisection.
+
+    Parameters
+    ----------
+    data : InputData
+        Physical inputs and consumer preferences.
+    lower : float, optional
+        Lower energy bracket, in kWh, below full PV utilisation.
+    upper : float, optional
+        Upper energy bracket, in kWh, reaching full PV utilisation.
+    energy_tol : float, optional
+        Maximum final bracket width, in kWh.
+    pv_tol : float, optional
+        Unused PV tolerance for full utilisation, in kWh.
+
+    Returns
+    -------
+    float
+        Upper estimate of the full-PV energy threshold, in kWh.
+
+    Notes
+    -----
+    The starting interval must bracket the transition; return its upper estimate.
+    """
 
     max_pv = float(data.pv_available.sum())
 
@@ -628,6 +824,7 @@ def find_pv_saturation_Emin(
 
         pv_used = float(result.hourly["pv"].sum())
 
+        # Keep the smallest upper bracket satisfying the full-PV tolerance.
         if max_pv - pv_used <= pv_tol:
             upper = Emin
         else:
@@ -637,7 +834,20 @@ def find_pv_saturation_Emin(
 
 
 def run_q3_cq_sweep(out: Path, base_result: Results | None = None):
-    """Run Q3 for different quadratic disutility coefficients."""
+    """Save the Q3 coefficient sweep and return (cQ, Results) pairs.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    base_result : Results or None, optional
+        Previously solved supplied base case to reuse.
+
+    Returns
+    -------
+    list[tuple[float, Results]]
+        Quadratic coefficients in DKK/kWh² and their Q3 solutions.
+    """
 
     data = load_question("Q3")
 
@@ -688,7 +898,22 @@ def run_q3_cq_sweep(out: Path, base_result: Results | None = None):
 def run_q3_battery_sensitivity(
     out: Path, base_no_bat_result=None, base_bat_result=None
 ):
-    """Sensitivity of battery value to price variation and capacity."""
+    """Save paired battery sensitivities and return two lists of daily metrics.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+    base_no_bat_result : Results or None, optional
+        Previously solved supplied base case without storage.
+    base_bat_result : Results or None, optional
+        Previously solved supplied base case with storage.
+
+    Returns
+    -------
+    tuple[list[dict], list[dict]]
+        Price-spread and capacity metrics; battery values are in DKK/day.
+    """
 
     base_no_bat = load_question("Q3")
     base_bat = load_question("Q3_battery")
@@ -808,7 +1033,22 @@ def run_q3_battery_sensitivity(
 def run_scenarios(
     question: str, out: Path, base_result: Results | None = None
 ) -> dict[str, Results]:
-    """Run declared Q1 price/tariff/PV controls and reuse the base solution."""
+    """Save the declared Q1 controls and return a scenario-to-Results dictionary.
+
+    Parameters
+    ----------
+    question : str
+        Case name, such as "Q1_caseA" or "Q3".
+    out : Path
+        Directory for saved results and figures.
+    base_result : Results or None, optional
+        Previously solved supplied base case to reuse.
+
+    Returns
+    -------
+    dict[str, Results]
+        Solved results keyed by Q1 scenario name.
+    """
     base = load_question(question)
     scenarios = {
         name: base if transform is None else transform(base, **kwargs)
@@ -830,7 +1070,23 @@ def run_scenarios(
 
 
 def run_validation(out: Path):
-    """Validate base cases, regime extremes, ties, temporal controls and Q3 duals."""
+    """Run the numerical checks, save diagnostics and return their DataFrame.
+
+    Parameters
+    ----------
+    out : Path
+        Directory for saved results and figures.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Objective and validation diagnostics for each test scenario.
+
+    Raises
+    ------
+    ValueError
+        If a numerical consistency check fails.
+    """
     out.mkdir(parents=True, exist_ok=True)
     cases = [
         (q, load_question(q), cls, {})
@@ -968,6 +1224,7 @@ def run_validation(out: Path):
                 **result.meta["validation"],
             }
         )
+    # Compare the Q3 shadow price with an independent central cost difference.
     finite_difference = (
         solved["dual_plus"].objective - solved["dual_minus"].objective
     ) / (2 * step)
@@ -975,6 +1232,7 @@ def run_validation(out: Path):
         finite_difference, solved["Q3"].duals["min_daily_energy"], atol=1e-4, rtol=0
     ):
         raise ValueError("Daily-energy dual does not match objective sensitivity.")
+    # Reordering identical prices cannot change these separable daily objectives.
     for label in ["linear", "quadratic"]:
         a, b = solved[f"alternating_{label}"], solved[f"clustered_{label}"]
         if not np.isclose(

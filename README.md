@@ -1,15 +1,9 @@
 # 46750 - Assignment 1: Demand-Side Flexibility in Active Distribution Grids
 
-Starter repository for **Group Assignment 1** of *46750 - Optimization in Modern Power Systems* (DTU).
-It contains the input data for every question (in `data/`), a small and working Python code base to
-build on, and the instructions below. The structure is a suggestion: adapt it to your needs, but keep
-it documented (update this README) so that your code stays reproducible and easy to grade.
-
-**Getting your own copy.** This is a public template: on the repository page, click
-**Use this template -> Create a new repository** to create your group's own repository under one
-member's GitHub account (recommended - the group can then work with git), or **Code -> Download ZIP**
-to work without GitHub. Using the Python starter code is recommended but not required; the input data
-in `data/` must be used as provided.
+Group 8's implementation of DTU course **46750 – Optimization in Modern Power
+Systems**, Assignment 1. It implements Q1, Q2(b/c/e), Q3 and the battery model,
+with reproducible experiments and numerical validation. Input JSON files remain
+as supplied; sensitivity scenarios are derived in Python.
 
 **Submitting your code.** Choose one of the two, and say in your report which one you chose:
 attach your complete project code as a single `.zip` file to your submission in DTU Learn, or give
@@ -41,7 +35,7 @@ conda activate 46750-a1
 ### 1.2 Gurobi licence
 
 The code uses [Gurobi](https://www.gurobi.com) through the `gurobipy` package. The package ships with a
-restricted licence that is large enough for this assignment (models up to 2000 variables/constraints), so
+restricted licence that was sufficient for all tested assignment models, so
 `python main.py` works out of the box. For unrestricted use, request a free
 [academic licence](https://www.gurobi.com/academia/academic-program-and-licenses/) with your DTU e-mail
 and activate it with `grbgetkey <your-key>` (on the DTU network or VPN).
@@ -50,9 +44,11 @@ and activate it with `grbgetkey <your-key>` (on the DTU network or VPN).
 ```bash
 python main.py
 ```
-This loads the `Q1_caseA` case from `data/`, prints a summary of the input data and saves the
-input figure to `results/Q1_caseA/`. Until you complete the model (see Section 3) it prints
-`[skipped] The model has no constraints ...` and stops there - that is expected.
+This solves Q1 case A and saves its schedule, cost/utility components and duals.
+Run `python main.py --validate` for the analytical and physical checks. The
+implementation was verified with Python 3.12.14, gurobipy 13.0.3, NumPy 2.3.5,
+pandas 2.2.3 and Matplotlib 3.10.8. The conda environment uses Python 3.11;
+`requirements.txt` records the supported minimum dependency versions.
 
 ## 2. Repository structure
 
@@ -77,10 +73,9 @@ results/                 Written by main.py (git-ignored)
 requirements.txt, environment.yaml, LICENSE, .gitignore
 ```
 
-The four modules mirror the workflow you are asked to implement and document: *data loading*,
-*model building*, *solving and extracting results*, *plotting*. Keep them separate as your code grows -
-for example one model class per question in `src/model.py` (or one file per question), and one function per
-experiment in `main.py`.
+The modules separate data, model construction/solving, scenario transformations,
+analysis and figures. Experiments stay in `main.py`. Question-specific classes
+are thin configurations of a shared parameterized LP/QP builder.
 
 ## 3. How to use the code
 
@@ -99,20 +94,23 @@ whose zero reference already equals the lower bound. The absolute-value
 auxiliary inequalities are not counted: at least one is always tight at an
 optimum with positive linear discomfort cost.
 
-**Run everything for one case**
-```bash
-python main.py --question Q1_caseA              # base case
-python main.py --question Q1_caseA --scenarios  # + example sensitivity scenarios
-python main.py --question Q2_linear
-python main.py --question Q2_quadratic
-python main.py --question Q3
-python main.py --question Q3_battery
-python main.py --q2-comparison                 # Q2(d): base + selected coefficient regimes
-python main.py --validate                      # analytical, physical and dual sanity checks
-python main.py --show                           # open the figures in a window
-```
+Run these commands from the repository root:
 
-**Use it from a notebook or your own script** (run from the repository root):
+| Report experiment | Command | Output directory |
+|---|---|---|
+| Q1 case A, including price/tariff/PV controls | `python main.py --question Q1_caseA --scenarios` | `results/Q1_caseA/` |
+| Q1 case B, including controls | `python main.py --question Q1_caseB --scenarios` | `results/Q1_caseB/` |
+| Q2(b) base and linear-coefficient sweep | `python main.py --question Q2_linear --scenarios` | `results/Q2_linear/` |
+| Q2(c) base and quadratic-coefficient sweep | `python main.py --question Q2_quadratic --scenarios` | `results/Q2_quadratic/` |
+| Q2(d) selected-scenario comparison | `python main.py --q2-comparison` | `results/Q2_comparison/` |
+| Q2(e) base and price-order experiment | `python main.py --q2-bonus` | `results/Q2_bonus/` |
+| Q3 base, comparison and two sensitivities | `python main.py --question Q3 --scenarios` | `results/Q3/` |
+| Q3(g) battery base, comparison and sensitivities | `python main.py --question Q3_battery --scenarios` | `results/Q3_battery/` |
+| Sanity checks, ties and dual sensitivity | `python main.py --validate` | `results/validation/` |
+
+Omit `--scenarios` for a base case. Add `--show` to an experiment command to
+open all figures after computation; otherwise figures are saved without a GUI.
+PNG figures also receive a vector PDF for the report.
 
 `--q2-comparison` runs the existing Q2 sweeps once and reuses their results for
 the base case and three selected scenarios: weak preferences `(cL=0.5, cQ=0.1)`,
@@ -128,6 +126,10 @@ daily load, rather than a hardcoded value or the first positive sampled dual.
 `energy_active` uses primal slack (`1e-6 kWh` tolerance); `energy_binding` also
 requires a positive dual above `1e-6 DKK/kWh`. The threshold sweep tightens
 Gurobi's `BarConvTol` to `1e-12` to resolve small slacks and marginal values.
+The existing PV-utilisation marker is computed by bisection, with a 0.001 kWh
+energy interval tolerance and a 0.00001 kWh unused-PV tolerance. The threshold
+regression test derives its expectation from the independent analytical hourly
+solution, rather than fixed previously observed values.
 
 Every model solve validates balance/bounds, reconstructed economic components,
 relevant dual identities and complementary slackness. Separable Q1/Q2 models
@@ -149,6 +151,8 @@ tables. Q3/battery comparisons export `comparison.csv`; battery sensitivity
 tables include both paired objectives and overlap counts. Files under `results/`
 remain generated outputs and need not be committed.
 
+**Use it from a notebook or your own script:**
+
 ```python
 from src.data_loader import load_question
 from src.model import FlexibleConsumerModel
@@ -167,23 +171,16 @@ high_spread = scale_prices(data, factor=2.0, keep_mean=True)
 results_hs = FlexibleConsumerModel(high_spread).build().solve()
 ```
 
-**What you need to implement.** `FlexibleConsumerModel.build()` in `src/model.py` is entirely `TODO`:
-identify and declare the decision variables of your formulation, then add the objective and the
-constraints - the gurobipy pattern for each step is shown in comments (including the `vtype=` to use
-if you ever declare binary variables). Complete it with your formulation from Question 1, then extend
-or subclass it for the following questions.
-Everything downstream (solving, extraction of primal and dual values, saving, plotting) already works.
-
-### Implemented optimisation models (written from us)
+### Implemented optimization models
 
 The optimisation models are implemented in `src/model.py`.
 
 - `FlexibleConsumerModel` implements Question 1 with price-elastic hourly consumption.
 - `LinearDisutilityModel` implements Question 2(b) with absolute-deviation disutility.
 - `QuadraticDisutilityModel` implements Question 2(c) with quadratic disutility.
-- `DailyEnergyModel` implements Question 3 by extending the quadratic-disutility model with a minimum daily energy requirement.
-
-The models share the same physical variables and constraints where possible. Later questions are implemented by subclassing earlier models to avoid duplicated code.
+- `TemporalDisutilityModel` configures Q2(e) with adjacent-hour discomfort.
+- `DailyEnergyModel` configures Q3 with quadratic discomfort and a daily minimum.
+- `BatteryModel` configures Q3(g) with losses, power/capacity limits and cyclic terminal SoC.
 
 All question classes now configure one parameterized `FlexibleConsumerModel`:
 `preference` selects utility/linear/quadratic/temporal; `daily_energy` and
@@ -201,20 +198,19 @@ Every variable family is stored in `self.var` and every constraint for which dua
   as a column of `results.hourly`. gurobipy indexes names automatically - `m.addVars(T, name="p_import")`
   creates `p_import[0]` ... `p_import[23]`, and the same holds for `m.addConstrs(..., name=...)` - so
   per-hour names come for free. Families named `import`, `export`, `load`, `pv` make the standard plots
-  of `src/plotting.py` work out of the box. With binary or integer variables (`vtype=GRB.BINARY`) the
-  model becomes a MILP and dual values are no longer defined - `solve()` then skips them.
+  of `src/plotting.py` work out of the box. All implemented models are continuous
+  LPs/QPs, and required duals are extracted and validated.
 
 * Store every constraint family in `self.con[<name>]`. `solve()` returns the dual value (Gurobi attribute
   `Pi`) of every hourly constraint as a column `dual_<name>` of `results.hourly`, and of every single
   constraint in `results.duals`.
 * Write the bounds you want a dual for as explicit constraints (`m.addConstr(...)`), not as variable bounds
   (`lb=`, `ub=`). Gurobi reports the sensitivity of a variable bound in the reduced cost (`RC`), not in `Pi`.
-* No quadratic *constraint* is needed in this assignment: the quadratic disutility sits in the objective, and
-  the duals of the (linear) constraints of a QP need nothing special. If you ever add one (`m.addQConstr(...)`),
-  its dual is in the attribute `QCPi` and Gurobi only computes it when the parameter `QCPDual` is 1 -
-  `model.py` sets it and reads the right attribute for you.
-  Gurobi's sign convention is d(objective)/d(right-hand side): for a "<=" constraint in a minimization the value
-  is non-positive; state the convention you use when you report multipliers.
+* Quadratic disutility is in the objective; all constraints are linear.
+  Gurobi's `Pi` gives objective sensitivity to the right-hand side: non-positive
+  for `<=` constraints and non-negative for `>=` constraints in these minimization
+  models. The balance is `PV + import (+ discharge) = load + export (+ charge)`.
+  Report the matching sign convention when interpreting its marginal value.
 
 ## 4. Input data
 
@@ -292,7 +288,7 @@ your report. In practice:
 
 ## 6. Question 2(e): temporal disutility bonus
 
-After adding `TemporalDisutilityModel` to `src/model.py`, reproduce Q2(e) with:
+Reproduce the implemented Q2(e) model with:
 
 ```bash
 python main.py --q2-bonus
@@ -341,3 +337,26 @@ normalization. Its level depends on the preference representation; compare
 ordering effects within each model rather than treating cross-model surplus
 levels as a common welfare ranking. The runner verifies all objective cost
 components and the separable models' invariance to price ordering.
+
+## 7. Scenario assumptions and input checks
+
+Input construction and model initialization reject non-finite values, inconsistent
+PV availability, invalid load bounds, non-positive discomfort coefficients,
+infeasible daily requirements, incomplete battery data, invalid efficiencies and
+out-of-capacity initial SoC. The supplied reference remains fixed when load bounds
+are varied; it may be outside new physical bounds, representing unavoidable
+comfort loss. Periods remain one hour. Grid limits are absent in the supplied data
+and are rejected rather than silently ignored.
+
+Mean-preserving price scaling rejects factors that would produce negative prices;
+prices are not clipped because clipping changes the mean. The factor-2 battery
+experiment has a slightly negative effective export price in one hour
+(`-0.019167 DKK/kWh`), even though wholesale prices remain non-negative.
+Saved metadata records whether all effective export prices are positive. This
+experiment must be interpreted without assuming they all are. All tested battery
+runs still satisfy the non-overlap check.
+
+PV scaling also rejects factors exceeding the installed peak rather than clipping
+the profile. Battery-capacity scenarios preserve the supplied initial SoC fraction;
+for the base data this is 50%. The implemented end condition is cyclic, not a free
+terminal state or salvage-value objective.

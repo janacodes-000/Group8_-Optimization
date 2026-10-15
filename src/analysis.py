@@ -35,43 +35,53 @@ def count_deviation_bound_hours(
     results: Results,
     tolerance: float = 1e-6,
 ) -> dict[str, int]:
-    """Count deviations limited by physical load bounds, using absolute kWh tolerance.
+    """Count hours with binding absolute-deviation constraints.
 
-    Parameters
-    ----------
-    data : InputData
-        Physical inputs and consumer preferences.
-    results : Results
-        Solved primal, dual and economic results.
-    tolerance : float, optional
-        Absolute load-bound comparison tolerance, in kWh.
+    At least one deviation inequality is binding in each hour
+    because the positive disutility coefficient minimizes the
+    auxiliary deviation variable.
 
-    Returns
-    -------
-    dict[str, int]
-        Bound-active hours, distinguishing actual deviations and curtailment.
-
-    Notes
-    -----
-    Count physical load endpoints, not absolute-value auxiliary inequalities.
-    Zero-reference hours can be bound-active without being curtailed.
+    Physical load-bound counts are retained as diagnostics.
     """
-    if data.reference_load is None:
-        raise ValueError("Deviation-bound counts require a reference profile.")
-    if not np.isfinite(tolerance) or tolerance <= 0:
-        raise ValueError("Tolerance must be finite and positive.")
+
     load = results.hourly["load"].to_numpy()
-    lower = np.isclose(load, data.load_min_kWh, atol=tolerance, rtol=0)
-    upper = np.isclose(load, data.load_max_kWh, atol=tolerance, rtol=0)
-    at_bound = lower | upper
-    deviating = np.abs(load - data.reference_load) > tolerance
+    reference = data.reference_load
+    deviation = results.hourly["deviation"].to_numpy()
+
+    # Binding absolute-deviation inequalities
+    positive_bound = np.isclose(
+        deviation, load - reference, atol=tolerance, rtol=0
+    )
+
+    negative_bound = np.isclose(
+        deviation, reference - load, atol=tolerance, rtol=0
+    )
+
+    # Physical load bounds
+    lower = np.isclose(
+        load, data.load_min_kWh, atol=tolerance, rtol=0
+    )
+
+    upper = np.isclose(
+        load, data.load_max_kWh, atol=tolerance, rtol=0
+    )
+
+    # Hours with nonzero deviation from the reference
+    deviating = np.abs(load - reference) > tolerance
+
     return {
-        "deviation_bound_hours": int(at_bound.sum()),
+        "deviation_bound_hours": int(
+            (positive_bound | negative_bound).sum()
+        ),
+        "positive_deviation_bound_hours": int(positive_bound.sum()),
+        "negative_deviation_bound_hours": int(negative_bound.sum()),
+        "deviating_hours": int(deviating.sum()),
+        "load_bound_hours": int((lower | upper).sum()),
         "lower_bound_hours": int(lower.sum()),
         "upper_bound_hours": int(upper.sum()),
-        "deviating_bound_hours": int((at_bound & deviating).sum()),
+        "deviating_bound_hours": int(((lower | upper) & deviating).sum()),
         "curtailed_bound_hours": int(
-            (lower & (load < data.reference_load - tolerance)).sum()
+            (lower & (load < reference - tolerance)).sum()
         ),
     }
 

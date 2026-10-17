@@ -5,11 +5,6 @@ Systems**, Assignment 1. It implements Q1, Q2(b/c/e), Q3 and the battery model,
 with reproducible experiments and numerical validation. Input JSON files remain
 as supplied; sensitivity scenarios are derived in Python.
 
-**Submitting your code.** Choose one of the two, and say in your report which one you chose:
-attach your complete project code as a single `.zip` file to your submission in DTU Learn, or give
-the link to your group's GitHub repository on the front page of your report. A linked repository must
-be accessible to the graders (public, or private with the teaching team invited) and must not be
-modified after the deadline - the last commit before the deadline is what is graded.
 
 ## 1. Setup
 
@@ -84,15 +79,25 @@ surplus in `results.metrics`, in DKK. The minimized objective is procurement
 minus utility; surplus is its negative. Components are saved in the JSON
 summary and checked against the solver objective.
 
-The Q2 sweep tables interpret the requested **binding deviation bound** as the
-physical endpoints `load_min-reference <= load-reference <= load_max-reference`.
-No extra deviation constraint is introduced. `deviation_bound_hours` counts
-hours at either endpoint once, using `1e-6 kWh` absolute tolerance.
-`lower_bound_hours`, `upper_bound_hours`, `deviating_bound_hours` and
-`curtailed_bound_hours` separate actual bound-limited deviations from hours
-whose zero reference already equals the lower bound. The absolute-value
-auxiliary inequalities are not counted: at least one is always tight at an
-optimum with positive linear discomfort cost.
+The Q2 sensitivity analyses distinguish between binding absolute-deviation
+constraints and physical load bounds.
+
+`deviation_bound_hours` counts the hours in which at least one of the
+absolute-deviation inequalities is binding. Since the auxiliary deviation
+variable represents the absolute difference between optimized and reference
+consumption, at least one inequality is binding in each hour for the linear
+disutility model with a positive coefficient.
+
+The physical consumption limits are evaluated separately:
+`load_bound_hours` counts hours at either the minimum or maximum load,
+while `lower_bound_hours` and `upper_bound_hours` report the respective
+limits individually. `deviating_bound_hours` counts hours where consumption
+both deviates from the reference and reaches a physical load bound.
+`curtailed_bound_hours` identifies hours where consumption is reduced below
+the reference and reaches the minimum load.
+
+All binding conditions are evaluated using an absolute tolerance of
+`1e-6 kWh`.
 
 Run these commands from the repository root:
 
@@ -110,8 +115,8 @@ Run these commands from the repository root:
 
 Omit `--scenarios` for a base case. Add `--show` to an experiment command to
 open all figures after computation; otherwise figures are saved without a GUI.
-Figures are saved as PNG only, without plot or subplot titles. Describe each
-figure in its report caption; axis labels, units and legends remain on the plots.
+Figures are saved as PNG files without plot or subplot titles.
+All figures include axis labels, units, and legends where applicable.
 
 `--q2-comparison` runs the existing Q2 sweeps once and reuses their results for
 the base case and three selected scenarios: weak preferences `(cL=0.5, cQ=0.1)`,
@@ -204,103 +209,122 @@ compatible wrappers. `MODEL_CLASSES`, `SWEEPS`, `Q1_SCENARIOS`,
 the shared sweep runner returns results in memory and reuses existing base-case
 solutions; experiment runners save aggregate tables and figures.
 
-Every variable family is stored in `self.var` and every constraint for which dual values are required is stored in `self.con`. The existing `solve()` method then extracts primal and dual results automatically.
 
-**Conventions that make the primal and dual values come out for free**
+### Primal and Dual Value Extraction
 
-* Store every variable family in `self.var[<name>]`. `solve()` returns the hourly values of each family
-  as a column of `results.hourly`. gurobipy indexes names automatically - `m.addVars(T, name="p_import")`
-  creates `p_import[0]` ... `p_import[23]`, and the same holds for `m.addConstrs(..., name=...)` - so
-  per-hour names come for free. Families named `import`, `export`, `load`, `pv` make the standard plots
-  of `src/plotting.py` work out of the box. All implemented models are continuous
-  LPs/QPs, and required duals are extracted and validated.
+The optimization models store decision variables in `self.var` and
+constraints in `self.con`. The `solve()` method automatically extracts
+the corresponding primal and dual values from Gurobi.
 
-* Store every constraint family in `self.con[<name>]`. `solve()` returns the dual value (Gurobi attribute
-  `Pi`) of every hourly constraint as a column `dual_<name>` of `results.hourly`, and of every single
-  constraint in `results.duals`.
-* Write the bounds you want a dual for as explicit constraints (`m.addConstr(...)`), not as variable bounds
-  (`lb=`, `ub=`). Gurobi reports the sensitivity of a variable bound in the reduced cost (`RC`), not in `Pi`.
-* Quadratic disutility is in the objective; all constraints are linear.
-  Gurobi's `Pi` gives objective sensitivity to the right-hand side: non-positive
-  for `<=` constraints and non-negative for `>=` constraints in these minimization
-  models. The balance is `PV + import (+ discharge) = load + export (+ charge)`.
-  Report the matching sign convention when interpreting its marginal value.
+Hourly decision variables, such as `import`, `export`, `load`, and `pv`,
+are stored in `results.hourly`. The dual values of hourly constraints
+are included in the same DataFrame as `dual_<name>`, while dual values
+of individual constraints are stored in `results.duals`.
 
-## 4. Input data
+Physical bounds for which shadow prices are required are implemented
+as explicit constraints. This allows their dual values to be extracted
+directly through Gurobi's `Pi` attribute.
 
-All input data lives in `data/`: two **shared** files plus one small **case** file per
-question. The shared files form a catalogue of every appliance used anywhere in the assignment;
-each `params_<case>.json` composes the consumer of one case by picking appliances from the
-catalogue by ID. All time series have 24 hourly values (hour 0 to 23).
+All implemented optimization models are continuous linear or quadratic
+programs (LP/QP). Quadratic disutility is represented in the objective
+function, while the constraints remain linear.
 
-**Units.** Every field name carries its unit. Fields ending in `_kW` are power ratings (kW);
-fields ending in `_kWh_per_hour` (or `_KWh_per_hour` - same unit despite the capital K) are hourly
-energy bounds (kWh consumed within one hour); fields ending in `_kWh` are energy amounts;
-`_DKK_per_kWh` are prices/costs and `_DKK_per_kWh2` is the quadratic disutility coefficient.
-**Capacity factors and ratios** (`hourly_profile_ratio`, `reference_load_capacity_factor`,
-`initial_state_of_charge_ratio`, and the `_next_day` profiles) are **dimensionless fractions in
-[0, 1] of the corresponding maximum** - multiply by it to get physical values. With 1-hour periods,
-a power rating in kW and an energy amount in kWh/h are numerically interchangeable; the loader
-does every conversion for you and exposes physical quantities:
-`pv_available = max_power_kW x hourly_profile_ratio` (kWh/h),
-`reference_load = max_load_KWh_per_hour x reference_load_capacity_factor` (kWh/h), and
-`battery_initial_soc_kWh = storage_capacity_kWh x initial_state_of_charge_ratio` (kWh).
+The nodal power balance is formulated as:
 
-| Question in the assignment | Case | Appliances (from the catalogue) |
-|---|---|---|
-| Question 1 - hourly consumption decision (utility u, PV cost c_PV), case A: c_PV < u | `Q1_caseA` | `PV_01_A` + `FL_01` (a load with `consumption_utility_DKK_per_kWh`; no reference profile, no daily requirement) |
-| Question 1, case B: a more expensive PV, c_PV > u | `Q1_caseB` | `PV_01_B` + `FL_01` (`PV_01_B` differs from `PV_01_A` only in `marginal_cost_DKK_per_kWh`) |
-| Question 2 - linear disutility of deviating from a reference profile | `Q2_linear` | `PV_01_A` + `FL_02_L` (reference profile, `linear_disutility_DKK_per_kWh`; same hourly bounds as Question 1; no utility) |
-| Question 2 - quadratic disutility | `Q2_quadratic` | `PV_01_A` + `FL_02_Q` (as `FL_02_L` with `quadratic_disutility_DKK_per_kWh2` instead) |
-| Question 3 - minimum daily energy requirement | `Q3` | `PV_01_A` + `FL_03` (as `FL_02_Q` plus `min_total_energy_per_day_kWh`, the E_min of the daily requirement) |
-| Question 3.(g) - the same consumer with a small battery | `Q3_battery` | `PV_01_A` + `FL_03` + `BAT_01` |
+`PV + import (+ battery discharge) = load + export (+ battery charge)`
 
-No data is shipped for the bonus question 2.(e) on purpose: choosing your own cost parameters (and
-justifying them) is part of that question - start from the `Q2_quadratic` case and override in code.
+The extracted dual values represent the marginal change in the
+objective function with respect to the right-hand side of the
+corresponding constraints, following Gurobi's sign convention.
 
-`params_<case>.json` - the case file
-: `consumers[]`: `consumer_id`, `connection_bus` (a `bus_id` of `bus_params.json`), `list_appliances`
-  (IDs of the consumer's DERs, loads and storages in `appliance_params.json`). `hyperparameters` is
-  unused in Assignment 1 (`null`).
+## 4. Input Data
 
-`appliance_params.json` - the shared catalogue, one list per appliance type (`null` if none)
-: **DERs**: `DER_id`, `DER_type` (`"PV"`), `max_power_kW` (peak power, kW), `marginal_cost_DKK_per_kWh` (cost of every kWh produced), `hourly_profile_ratio` (dimensionless fraction of `max_power_kW` available each hour; available energy in kWh/h = `max_power_kW` x ratio), `hourly_profile_ratio_next_day` (see *Next-day forecasts* below)
-: **loads**: `load_id`, `load_type`, `max_load_KWh_per_hour` and `min_load_KWh_per_hour` (hourly consumption bounds, kWh/h), `consumption_utility_DKK_per_kWh` (value of every kWh consumed, Question 1), `linear_disutility_DKK_per_kWh` and `quadratic_disutility_DKK_per_kWh2` (Questions 2-3), `min_total_energy_per_day_kWh` (the E_min of Question 3), `reference_load_capacity_factor` (dimensionless fraction of `max_load_KWh_per_hour`; preferred consumption in kWh/h = max load x factor), `reference_hourly_profile_ratio_next_day` (see *Next-day forecasts*). Fields a load does not use are `null`. The hourly bounds are the same for every load: deviations from the reference are limited only by them.
-: **storages**: `storage_id`, `storage_type` (`"battery"`), `storage_capacity_kWh`, `max_charging_power_kW`, `max_discharging_power_kW`, `charging_efficiency` and `discharging_efficiency` (fraction of the energy transferred that survives each conversion - a full round trip keeps η_ch·η_dis), `initial_state_of_charge_ratio` (fraction of `storage_capacity_kWh` in the battery at the start of the day). **No final state of charge is given on purpose**: how to treat the battery's state of charge at the end of the day (constraint or objective) is your modeling choice in Question 3.(g).
-: **heat_pumps**: not used in Assignment 1 (`null`)
+All optimization models use the input data provided for Assignment 1,
+stored in the `data/` directory. The original JSON files remain unchanged
+to ensure reproducibility and consistency across the different questions.
 
-`bus_params.json` - grid and market conditions at the connection bus
-: `bus_id`, `import_tariff_DKK_per_kWh`, `export_tariff_DKK_per_kWh`, `energy_price_DKK_per_kWh` (24 values), `energy_price_next_day_DKK_per_kWh` (see *Next-day forecasts*), `max_import_kW`, `max_export_kW` (`null` = no grid limit in Assignment 1)
+### 4.1 Data Structure
 
-**Next-day forecasts.** Three fields carry the forecast for the *following* day:
-`energy_price_next_day_DKK_per_kWh` (in `bus_params.json`), `hourly_profile_ratio_next_day` (in the
-DER entries) and `reference_hourly_profile_ratio_next_day` (in the load entries). They are **not
-needed for the base models**: they are provided in case you want to explore the end-of-horizon
-choice of Question 3.(g) with a look-ahead (for instance a rolling-horizon or a two-day experiment).
-`load_question()` exposes them as `energy_price_next_day`, `pv_available_next_day` and
-`reference_load_next_day`.
+The input data is organized into two shared parameter files and
+individual configuration files for each optimization case.
 
-`load_question()` in `src/data_loader.py` shows exactly how each attribute is derived from these files.
+| File | Description |
+|---|---|
+| `appliance_params.json` | Technical and economic parameters of the PV systems, flexible loads, and battery storage. |
+| `bus_params.json` | Electricity prices, import/export tariffs, and grid connection parameters. |
+| `params_Q1_caseA.json` | Configuration for Question 1, Case A. |
+| `params_Q1_caseB.json` | Configuration for Question 1, Case B. |
+| `params_Q2_linear.json` | Configuration for the linear disutility model. |
+| `params_Q2_quadratic.json` | Configuration for the quadratic disutility model. |
+| `params_Q3.json` | Configuration for the daily minimum energy requirement. |
+| `params_Q3_battery.json` | Configuration for the battery extension. |
 
-**Modifying or adding data.** For sensitivity analyses, prefer deriving scenarios in code
-(`src/scenarios.py`) over editing the JSON files - it keeps the base case intact and the experiment
-reproducible. If you do add appliances or case files, follow the same structure (a new entry in the
-catalogue, a new `params_<case>.json`) and document them here.
+Each case file specifies which appliances and parameters are used in
+the corresponding optimization problem.
 
-## 5. What is expected of your code
+### 4.2 Data Processing
 
-Your code is part of the submission (as a repository link or a `.zip`, see the top of this README).
-The graders should be able to open it, follow this README, and reproduce every number and figure in
-your report. In practice:
+Input data is loaded and processed through `src/data_loader.py`.
 
-* keep the separation between data loading, model building, solving and plotting;
-* document every function you add (a short docstring stating inputs, outputs and units is enough), and
-  describe any new module or data file in this README;
-* make each experiment of the report runnable with a single command (e.g. `python main.py --question ...`
-  or one notebook cell), and save its outputs under `results/`;
-* commit regularly and with meaningful messages - the git history is also a record of everyone's contribution.
+The `load_question()` function reads the corresponding JSON files,
+extracts the relevant parameters, and converts them into the physical
+quantities required by the optimization models.
 
-## 6. Question 2(e): temporal disutility bonus
+The main input parameters include:
+
+- Hourly electricity prices and import/export tariffs (DKK/kWh).
+- Available PV generation (kWh per hour).
+- Minimum and maximum hourly electricity consumption (kWh per hour).
+- Reference consumption profiles (kWh per hour).
+- Consumption utility and disutility coefficients.
+- Minimum daily energy requirements (kWh).
+- Battery energy capacity (kWh), charging/discharging power limits
+  (kW), efficiencies, and initial state of charge.
+
+All optimization cases use a 24-hour horizon with hourly time steps.
+
+PV availability and reference consumption are calculated from the
+corresponding maximum capacities and hourly profile ratios.
+Battery initial state of charge is calculated from the storage
+capacity and the specified initial SoC ratio.
+
+The supplied data also includes next-day electricity prices, PV
+availability, and reference consumption profiles. These are loaded
+by the data loader but are not used in the implemented single-day
+optimization models.
+
+### 4.3 Sensitivity Analyses
+
+Sensitivity analyses are implemented in `src/scenarios.py`.
+
+The scenarios modify selected model parameters, such as electricity
+prices, PV availability, disutility coefficients, minimum daily
+energy requirements, and battery capacity.
+
+All modifications are performed programmatically without changing
+the original JSON input files. This ensures that the base cases
+remain reproducible and that the impact of individual parameters
+can be evaluated consistently.
+
+### 4.4 Model Assumptions
+
+The optimization models use the following assumptions:
+
+- The optimization horizon consists of 24 one-hour periods.
+- Electricity prices and PV availability are assumed to be known
+  for the optimization horizon.
+- The original reference consumption profiles remain unchanged
+  during sensitivity analyses unless explicitly modified.
+- The battery model includes charging and discharging efficiencies,
+  power limits, and energy capacity constraints.
+- A cyclic terminal state-of-charge condition is imposed for the
+  battery, meaning that the final SoC equals the initial SoC.
+
+Additional assumptions specific to individual questions are
+described in the corresponding sections of the report.
+
+
+## 5. Question 2(e): temporal disutility bonus
 
 Reproduce the implemented Q2(e) model with:
 
@@ -347,12 +371,13 @@ Tariffs, bounds and each model's coefficients are fixed. Only price ordering
 changes between the two profiles.
 
 Daily surplus is minus the Q2 objective under the zero-at-reference discomfort
-normalization. Its level depends on the preference representation; compare
-ordering effects within each model rather than treating cross-model surplus
-levels as a common welfare ranking. The runner verifies all objective cost
+normalization. The surplus level depends on the preference representation.
+Therefore, the analysis focuses on the effects of price ordering
+within each model rather than interpreting differences in surplus
+levels across models as a common welfare ranking. The runner verifies all objective cost
 components and the separable models' invariance to price ordering.
 
-## 7. Scenario assumptions and input checks
+## 6. Scenario assumptions and input checks
 
 Input construction and model initialization reject non-finite values, inconsistent
 PV availability, invalid load bounds, non-positive discomfort coefficients,

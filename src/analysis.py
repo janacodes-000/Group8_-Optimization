@@ -46,7 +46,11 @@ def count_deviation_bound_hours(
 
     load = results.hourly["load"].to_numpy()
     reference = data.reference_load
-    deviation = results.hourly["deviation"].to_numpy()
+    deviation = (
+        results.hourly["deviation"].to_numpy()
+        if "deviation" in results.hourly
+        else np.abs(load - reference)
+    )
 
     # Binding absolute-deviation inequalities
     positive_bound = np.isclose(
